@@ -145,7 +145,7 @@ export const createAuditSession = async (
   // Send the initial complex message
   // We return the stream so the UI can show it typing
   const initialResponseStream = await chat.sendMessageStream({
-    content: { parts }
+    message: parts
   });
 
   return { chat, initialResponseStream };
