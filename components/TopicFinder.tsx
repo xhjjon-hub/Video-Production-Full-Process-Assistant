@@ -29,6 +29,19 @@ const TopicFinder: React.FC = () => {
     }
   };
 
+  const handleCopyUrl = (e: React.MouseEvent<HTMLButtonElement>, url: string) => {
+    e.preventDefault();
+    navigator.clipboard.writeText(url);
+    const btn = e.currentTarget;
+    const originalText = btn.innerText;
+    btn.innerText = '已复制';
+    btn.classList.add('text-green-400');
+    setTimeout(() => {
+      btn.innerText = originalText;
+      btn.classList.remove('text-green-400');
+    }, 2000);
+  };
+
   return (
     <div className="max-w-4xl mx-auto space-y-8 animate-fade-in">
       <div className="text-center space-y-2">
@@ -117,13 +130,36 @@ const TopicFinder: React.FC = () => {
 
             {topic.sources && topic.sources.length > 0 && (
               <div className="mt-4 pt-4 border-t border-dark-700">
-                <p className="text-xs text-gray-500 mb-2">来源:</p>
-                <ul className="space-y-1">
+                <p className="text-xs text-gray-500 mb-3 font-semibold flex items-center gap-2">
+                  <span>🌐</span> 相关来源 (点击观看):
+                </p>
+                <ul className="space-y-3">
                   {topic.sources.map((source, idx) => (
-                    <li key={idx}>
-                      <a href={source.url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-400 hover:underline flex items-center gap-1">
-                        🔗 {source.title}
+                    <li key={idx} className="group/source">
+                      {/* Source Title Link */}
+                      <a 
+                        href={source.url} 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className="text-sm text-brand-400 hover:text-brand-300 font-medium hover:underline flex items-center gap-1 mb-1 truncate"
+                        title="点击跳转到视频/网页"
+                      >
+                        {source.title || '无标题来源'} 
+                        <svg className="w-3 h-3 opacity-70" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
                       </a>
+                      
+                      {/* URL Copy Bar */}
+                      <div className="flex items-center gap-2 bg-dark-950 rounded px-2 py-1.5 border border-dark-800 group-hover/source:border-dark-600 transition-colors">
+                        <span className="text-[10px] text-gray-500 font-mono truncate flex-1 select-all" title={source.url}>
+                          {source.url}
+                        </span>
+                        <button 
+                          onClick={(e) => handleCopyUrl(e, source.url)}
+                          className="text-[10px] text-gray-400 hover:text-white bg-dark-800 hover:bg-dark-700 px-2 py-0.5 rounded transition-colors whitespace-nowrap border border-dark-700"
+                        >
+                          复制链接
+                        </button>
+                      </div>
                     </li>
                   ))}
                 </ul>
