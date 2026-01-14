@@ -7,10 +7,10 @@ export enum AppView {
 
 export enum Platform {
   TIKTOK = 'TikTok',
-  DOUYIN = 'Douyin',
+  DOUYIN = '抖音',
   YOUTUBE_SHORTS = 'YouTube Shorts',
   INSTAGRAM_REELS = 'Instagram Reels',
-  RED_NOTE = 'Xiaohongshu'
+  RED_NOTE = '小红书'
 }
 
 export interface TopicResult {

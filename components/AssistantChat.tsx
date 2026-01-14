@@ -5,7 +5,7 @@ import { GenerateContentResponse } from '@google/genai';
 const AssistantChat: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<{role: 'user' | 'model', text: string}[]>([
-    { role: 'model', text: 'Hi! I am your creative assistant. Stuck on an idea or need algorithm advice? Ask away!' }
+    { role: 'model', text: '你好！我是你的创作助手。无论是缺灵感还是想了解算法机制，随时问我！' }
   ]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -53,7 +53,7 @@ const AssistantChat: React.FC = () => {
       }
     } catch (e) {
       console.error(e);
-      setMessages(prev => [...prev, { role: 'model', text: "Sorry, I encountered an error connecting to the creative brain." }]);
+      setMessages(prev => [...prev, { role: 'model', text: "抱歉，我连接创作大脑时遇到了一点问题。" }]);
     } finally {
       setIsTyping(false);
     }
@@ -82,8 +82,8 @@ const AssistantChat: React.FC = () => {
             AI
           </div>
           <div>
-            <h3 className="font-bold text-white text-sm">Creative Assistant</h3>
-            <p className="text-xs text-gray-400">Online</p>
+            <h3 className="font-bold text-white text-sm">创作助手</h3>
+            <p className="text-xs text-gray-400">在线</p>
           </div>
         </div>
 
@@ -121,7 +121,7 @@ const AssistantChat: React.FC = () => {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-              placeholder="Ask anything..."
+              placeholder="输入你的问题..."
               className="flex-1 bg-dark-950 border border-dark-700 rounded-full px-4 py-2 text-sm text-white focus:outline-none focus:border-brand-500"
             />
             <button 

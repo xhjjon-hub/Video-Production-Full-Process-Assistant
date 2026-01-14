@@ -9,6 +9,15 @@ import { AppView } from './types';
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>(AppView.TOPIC_RESEARCH);
 
+  const getViewTitle = (view: AppView) => {
+    switch (view) {
+      case AppView.TOPIC_RESEARCH: return '灵感与选题';
+      case AppView.SCRIPT_WRITER: return '脚本创作';
+      case AppView.CONTENT_AUDIT: return '内容诊断';
+      default: return view.replace('_', ' ');
+    }
+  };
+
   return (
     <div className="flex h-screen w-full bg-dark-950 text-white overflow-hidden">
       {/* Sidebar Navigation */}
@@ -20,7 +29,7 @@ const App: React.FC = () => {
           {/* Header Area (Optional breadcrumb/title per page) */}
           <div className="mb-2 flex items-center justify-between">
              <div className="text-sm text-gray-500 uppercase tracking-wider font-semibold">
-               {currentView.replace('_', ' ')}
+               {getViewTitle(currentView)}
              </div>
              {/* Example Profile/Settings Placeholder */}
              <div className="w-8 h-8 rounded-full bg-dark-800 border border-dark-700"></div>

@@ -15,13 +15,13 @@ export const researchTopics = async (query: string, domain: string, platform: Pl
   const ai = getAiClient();
   
   const prompt = `
-    You are a viral content strategist. 
-    Find 5 trending or high-potential short video topics based on the user's request: "${query}" in the domain of "${domain}".
-    Focus on what works best for ${platform}.
+    你是一位短视频爆款内容策略专家。
+    基于用户的请求："${query}"，在"${domain}"领域内，寻找 5 个热门或具有爆款潜力的短视频选题。
+    请重点考虑适合 ${platform} 平台的内容。
     
-    If appropriate, use Google Search to find real-time trends, news, or recent viral hits.
+    请使用 Google 搜索查找实时趋势、新闻或最近的爆款视频作为依据。
     
-    Return the result strictly as a JSON array.
+    请严格以 JSON 数组格式返回结果，**所有文本内容必须使用中文**。
   `;
 
   // We ask for JSON text, but we also use search tools. 
@@ -79,20 +79,20 @@ export const generateVideoScript = async (params: ScriptParams): Promise<string>
   const ai = getAiClient();
 
   const prompt = `
-    Create a viral short video script for ${params.platform}.
-    Topic: ${params.topic}
-    Target Audience: ${params.targetAudience}
-    Tone: ${params.tone}
-    Estimated Duration: ${params.durationSeconds} seconds.
+    为 ${params.platform} 平台创作一个爆款短视频脚本。
+    主题: ${params.topic}
+    目标受众: ${params.targetAudience}
+    基调: ${params.tone}
+    预计时长: ${params.durationSeconds} 秒。
 
-    Structure the response in Markdown:
-    - **Hook (0-3s)**: Visual/Audio hook to stop scrolling.
-    - **Content Body**: The main value/story (split into scenes).
-    - **CTA**: Call to action.
-    - **Visual Cues**: Camera angles, text overlays.
-    - **Audio Cues**: Music, sound effects.
+    请**使用中文**并在 Markdown 格式中包含以下部分：
+    - **黄金前 3 秒 (Hook)**: 视觉/听觉钩子，目的是阻止用户划走。
+    - **内容主体**: 核心价值或故事（分场景描述）。
+    - **CTA (行动号召)**: 引导关注或互动。
+    - **视觉提示**: 镜头角度、画面描述、文字贴纸。
+    - **音频提示**: 背景音乐风格、音效。
     
-    Explain the strategy behind the hook.
+    请在最后简要解释一下这开头 (Hook) 背后的策略。
   `;
 
   const response = await ai.models.generateContent({
@@ -100,7 +100,7 @@ export const generateVideoScript = async (params: ScriptParams): Promise<string>
     contents: prompt,
   });
 
-  return response.text || "Failed to generate script.";
+  return response.text || "生成脚本失败。";
 };
 
 // 3. Content Audit (Multimodal)
@@ -112,21 +112,21 @@ export const auditContent = async (
   const ai = getAiClient();
 
   const prompt = `
-    Analyze this uploaded material (Video/Image/Audio/Text) for a short video.
-    Context provided by user: "${context}".
+    分析这个上传的素材（视频/图片/音频/文本），目标是制作成短视频。
+    用户提供的背景信息："${context}"。
     
-    Critique it based on:
-    1. Attention grabbing (Hook capability)
-    2. Pacing and Clarity
-    3. Visual/Audio Quality
-    4. Viral Potential
+    请基于以下维度进行批判性评估（**请用中文回答**）：
+    1. 吸引力 (Hook 能力)
+    2. 节奏与清晰度
+    3. 视听质量
+    4. 爆款潜力
     
-    Provide a JSON response with:
-    - score (1-100)
-    - strengths (array of strings)
-    - weaknesses (array of strings)
-    - suggestions (array of actionable advice)
-    - viralPotential (Low, Medium, High, Very High)
+    请提供 JSON 格式的响应，包含：
+    - score (1-100 分)
+    - strengths (字符串数组，优点)
+    - weaknesses (字符串数组，缺点)
+    - suggestions (字符串数组，具体的修改建议)
+    - viralPotential (枚举值: 'Low', 'Medium', 'High', 'Very High')
   `;
 
   const response = await ai.models.generateContent({
@@ -167,7 +167,7 @@ export const chatWithAssistant = async (history: {role: string, parts: {text: st
     model: 'gemini-3-flash-preview',
     history: history,
     config: {
-      systemInstruction: "You are a helpful expert assistant for a short video creation app. Keep answers concise, encouraging, and focused on video production, algorithms, and creativity.",
+      systemInstruction: "你是一个短视频创作应用的专家助手。请用中文回答。保持回答简洁、鼓舞人心，并专注于视频制作、平台算法和创意激发。",
     }
   });
 

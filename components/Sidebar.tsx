@@ -8,9 +8,9 @@ interface SidebarProps {
 
 const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView }) => {
   const navItems = [
-    { id: AppView.TOPIC_RESEARCH, label: '💡 Inspiration & Topics', icon: '🔍' },
-    { id: AppView.SCRIPT_WRITER, label: '📝 Script Studio', icon: '✍️' },
-    { id: AppView.CONTENT_AUDIT, label: '🎬 Content Audit', icon: '🩺' },
+    { id: AppView.TOPIC_RESEARCH, label: '💡 灵感与选题', icon: '🔍' },
+    { id: AppView.SCRIPT_WRITER, label: '📝 脚本创作', icon: '✍️' },
+    { id: AppView.CONTENT_AUDIT, label: '🎬 内容诊断', icon: '🩺' },
   ];
 
   return (
@@ -19,7 +19,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView }) => {
         <h1 className="text-2xl font-bold bg-gradient-to-r from-brand-400 to-blue-500 bg-clip-text text-transparent">
           ViralFlow
         </h1>
-        <p className="text-xs text-gray-400 mt-1">AI Creator Studio</p>
+        <p className="text-xs text-gray-400 mt-1">AI 创作工坊</p>
       </div>
 
       <nav className="flex-1 px-4 space-y-2">
@@ -41,7 +41,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView }) => {
 
       <div className="p-4 border-t border-dark-800">
         <div className="bg-dark-800 rounded-lg p-3">
-          <p className="text-xs text-gray-400 text-center">Powered by Gemini 3.0</p>
+          <p className="text-xs text-gray-400 text-center">由 Gemini 3.0 驱动</p>
         </div>
       </div>
     </div>
