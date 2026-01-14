@@ -32,6 +32,8 @@ export interface ScriptParams {
   durationSeconds: number;
 }
 
+// Deprecated single result type, keeping for compatibility if needed, 
+// but we are moving to chat-based audit.
 export interface AuditResult {
   score: number;
   strengths: string[];
@@ -45,6 +47,17 @@ export interface ChatMessage {
   role: 'user' | 'model';
   content: string;
   timestamp: number;
+  isThinking?: boolean; // For UI loading state
+}
+
+export interface FileData {
+  id: string; // Unique ID for tracking
+  file: File;
+  previewUrl: string;
+  base64?: string;
+  mimeType?: string;
+  uploadStatus: 'pending' | 'uploading' | 'success' | 'error';
+  uploadProgress: number; // 0-100
 }
 
 export interface GroundingMetadata {
