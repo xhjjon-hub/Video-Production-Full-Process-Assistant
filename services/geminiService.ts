@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type, Chat } from "@google/genai";
 import { Platform, ScriptParams, TopicResult } from "../types";
 
@@ -176,4 +177,104 @@ export const chatWithAssistant = async (history: {role: string, parts: {text: st
 
   const result = await chat.sendMessageStream({ message: newMessage });
   return result;
+};
+
+// 5. Benchmark & Imitation
+export const analyzeBenchmarkContent = async (
+  url: string,
+  file?: { data: string; mimeType: string }
+): Promise<string> => {
+  const ai = getAiClient();
+  const parts: any[] = [];
+  
+  if (file) {
+    parts.push({
+      inlineData: { mimeType: file.mimeType, data: file.data }
+    });
+  }
+
+  const prompt = `
+  请深度剖析这个视频（或链接内容）：${url ? `链接: ${url}` : ''}。
+  
+  我需要一份**深度拆解报告**，作为我要模仿制作类似视频的依据。
+  请**使用 Markdown** 并包含以下板块：
+
+  1.  **核心亮点 (The Spark)**:
+      *   这个视频为什么会火？（情绪价值、信息差、视觉冲击？）
+      *   它的目标受众是谁？
+
+  2.  **结构拆解 (Structure)**:
+      *   **Hook (0-3秒)**: 它是如何抓住注意力的？（画面、声音、文案）
+      *   **叙事节奏**: 内容是如何层层递进的？
+      *   **CTA (结尾)**: 它是如何引导互动的？
+
+  3.  **视听语言 (Audio/Visual)**:
+      *   剪辑风格（快节奏、卡点、长镜头？）
+      *   BGM 与音效的运用策略。
+      *   画面色调与滤镜风格。
+
+  4.  **优点与缺点**:
+      *   ✅ 值得学习的优点。
+      *   ❌ 可能存在的缺点或改进空间。
+
+  请确保分析足够专业，能指导后续的创作。
+  `;
+  parts.push({ text: prompt });
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-flash-preview',
+    contents: { parts },
+    config: {
+      tools: url ? [{ googleSearch: {} }] : [], // Use Search if URL is provided
+    }
+  });
+
+  return response.text || "分析失败";
+};
+
+export const createImitationSession = async (
+  benchmarkAnalysis: string,
+  userIdea: string,
+  userAssets: { data: string; mimeType: string }[]
+): Promise<{ chat: Chat; initialResponseStream: any }> => {
+  const ai = getAiClient();
+
+  const chat = ai.chats.create({
+    model: 'gemini-3-flash-preview',
+    config: {
+      systemInstruction: "你是一位短视频制作导师。你的任务是根据‘标杆视频的分析报告’，结合‘用户的创意和素材’，指导用户制作出一个具备同样爆款潜质的新视频。你的建议必须具体、可执行，不要说空话。始终使用 Markdown 格式。",
+    }
+  });
+
+  const parts: any[] = [];
+  userAssets.forEach(f => {
+    parts.push({
+      inlineData: { mimeType: f.mimeType, data: f.data }
+    });
+  });
+
+  const prompt = `
+  【任务目标】
+  我想基于下方的“标杆视频分析”，制作一个我自己的视频。
+  
+  【标杆分析】
+  ${benchmarkAnalysis}
+  
+  【我的想法/创意】
+  ${userIdea || "我暂时只有一个模糊的概念，请根据标杆帮我发散。"}
+  
+  【我的素材】
+  (已上传 ${userAssets.length} 个文件，请查看附件)
+  
+  【请输出】
+  请为我生成一份**定制化的制作指南**：
+  1.  **脚本大纲**: 模仿标杆的结构，填入我的内容。
+  2.  **拍摄清单 (Shot List)**: 基于我的素材或需要补拍的镜头。
+  3.  **剪辑指导**: 如何复刻标杆的剪辑节奏。
+  4.  **创新点**: 在模仿的基础上，如何做出我的特色？
+  `;
+  parts.push({ text: prompt });
+
+  const initialResponseStream = await chat.sendMessageStream({ message: parts });
+  return { chat, initialResponseStream };
 };

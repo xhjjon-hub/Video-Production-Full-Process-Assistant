@@ -1,9 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { createAuditSession, sendAuditMessage, generateFinalPlan } from '../services/geminiService';
+import remarkGfm from 'remark-gfm';
+import { createAuditSession, sendAuditMessage, chatWithAssistant } from '../services/geminiService';
 import { ChatMessage, FileData } from '../types';
 import { Chat, GenerateContentResponse } from "@google/genai";
 import html2pdf from 'html2pdf.js';
+
+const STORAGE_KEY_MESSAGES = 'viralflow_audit_messages';
+const STORAGE_KEY_PHASE = 'viralflow_audit_phase';
 
 const MediaAnalyzer: React.FC = () => {
   // Phase: 'upload' | 'consultation'
@@ -25,13 +29,54 @@ const MediaAnalyzer: React.FC = () => {
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // --- Persistence Logic ---
+  useEffect(() => {
+    // Load history on mount
+    const savedMessages = localStorage.getItem(STORAGE_KEY_MESSAGES);
+    const savedPhase = localStorage.getItem(STORAGE_KEY_PHASE);
+
+    if (savedMessages) {
+      try {
+        const parsed = JSON.parse(savedMessages);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setMessages(parsed);
+          // If we have messages, we are likely in consultation phase or should be
+          if (savedPhase === 'consultation') {
+            setPhase('consultation');
+          }
+        }
+      } catch (e) {
+        console.error("Failed to load history", e);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    // Save history on change
+    if (messages.length > 0) {
+        localStorage.setItem(STORAGE_KEY_MESSAGES, JSON.stringify(messages));
+    }
+    localStorage.setItem(STORAGE_KEY_PHASE, phase);
+  }, [messages, phase]);
+
+  const clearHistory = () => {
+    if (window.confirm("确定要清除所有历史记录并开始新的诊断吗？")) {
+      setMessages([]);
+      setFiles([]);
+      setPhase('upload');
+      setChatSession(null);
+      localStorage.removeItem(STORAGE_KEY_MESSAGES);
+      localStorage.removeItem(STORAGE_KEY_PHASE);
+    }
+  };
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, isTyping]);
+  }, [messages, isTyping, phase]);
 
   // --- File Handling with Progress ---
 
@@ -216,14 +261,28 @@ const MediaAnalyzer: React.FC = () => {
   };
 
   const handleSendMessage = async () => {
-    if (!input.trim() || !chatSession) return;
+    if (!input.trim()) return;
     const userText = input;
     setInput('');
     setMessages(prev => [...prev, { id: Date.now().toString(), role: 'user', content: userText, timestamp: Date.now() }]);
     setIsTyping(true);
 
     try {
-      const stream = await sendAuditMessage(chatSession, userText);
+      let stream;
+      if (chatSession) {
+        // Active session exists
+        stream = await sendAuditMessage(chatSession, userText);
+      } else {
+        // Session lost (reload) - restore context via text history
+        // Convert UI messages to API history format
+        const history = messages.map(m => ({
+          role: m.role,
+          parts: [{ text: m.content }]
+        }));
+        // We use chatWithAssistant here as a fallback to continue text-based discussion about the history
+        stream = await chatWithAssistant(history, userText);
+      }
+
       const msgId = (Date.now() + 1).toString();
       setMessages(prev => [...prev, { id: msgId, role: 'model', content: '', timestamp: Date.now() }]);
 
@@ -235,7 +294,7 @@ const MediaAnalyzer: React.FC = () => {
       }
     } catch (e) {
       console.error(e);
-      setMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', content: "**发送失败**: 请稍后重试。", timestamp: Date.now() }]);
+      setMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', content: "**发送失败**: 连接已断开，请尝试清除历史记录后重新上传文件，或检查网络。", timestamp: Date.now() }]);
     } finally {
       setIsTyping(false);
     }
@@ -265,7 +324,6 @@ const MediaAnalyzer: React.FC = () => {
     setDownloadingId(messageId);
     
     // 1. Locate source content from DOM
-    // We access the specific message bubble content
     const sourceNode = document.getElementById(`msg-content-${messageId}`);
     if (!sourceNode) {
        setDownloadingId(null);
@@ -273,41 +331,32 @@ const MediaAnalyzer: React.FC = () => {
        return;
     }
 
-    // 2. Create an isolated, fixed container for PDF generation
-    // We position it fixed at 0,0 but behind everything (z-index -9999).
-    // It must be visible to the DOM (not display:none) for html2canvas to render it.
+    // 2. Create an isolated container
     const container = document.createElement('div');
     container.style.position = 'fixed';
     container.style.top = '0';
     container.style.left = '0';
-    container.style.width = '210mm'; // Standard A4 width
-    // container.style.minHeight = '297mm'; 
+    container.style.width = '210mm'; 
     container.style.zIndex = '-9999';
-    container.style.backgroundColor = '#ffffff'; // Ensure white background
-    container.style.color = '#000000'; // Ensure black text
+    container.style.backgroundColor = '#ffffff'; 
+    container.style.color = '#000000'; 
     container.style.padding = '20mm';
     container.style.boxSizing = 'border-box';
     
-    // 3. Clone the content to avoid modifying the actual UI
     const contentClone = sourceNode.cloneNode(true) as HTMLElement;
 
-    // 4. CRITICAL: Strip ALL classes from the cloned tree.
-    // The original content uses Tailwind classes like 'prose-invert' (white text) and 'bg-dark-xxx'.
-    // By removing classes, we rely purely on the browser's default styles + our injected CSS below.
+    // 4. Strip Classes
     const stripClasses = (node: HTMLElement) => {
         if (node.nodeType === Node.ELEMENT_NODE) {
             node.removeAttribute('class');
-            // Also strip inline styles that might color text white
             node.style.color = ''; 
             node.style.background = '';
-            // Recurse
             Array.from(node.children).forEach(child => stripClasses(child as HTMLElement));
         }
     }
     stripClasses(contentClone);
 
-    // 5. Inject Print-Specific CSS into the container
-    // This re-styles the naked HTML elements (h1, p, ul) to look good on PDF.
+    // 5. Inject Print-Specific CSS (Included TABLE styles)
     const style = document.createElement('style');
     style.innerHTML = `
       .pdf-root { font-family: 'Helvetica', 'Arial', sans-serif; line-height: 1.6; color: #333; }
@@ -323,13 +372,14 @@ const MediaAnalyzer: React.FC = () => {
       pre { background: #f3f4f6; padding: 12px; border-radius: 8px; overflow-x: auto; font-size: 0.85em; margin-bottom: 1em; }
       blockquote { border-left: 4px solid #e5e7eb; padding-left: 1em; color: #4b5563; font-style: italic; }
       img { max-width: 100%; height: auto; }
-      table { width: 100%; border-collapse: collapse; margin-bottom: 1em; }
-      th, td { border: 1px solid #e5e7eb; padding: 8px; text-align: left; }
-      th { background-color: #f9fafb; font-weight: 600; }
+      /* Table Styles for PDF */
+      table { width: 100%; border-collapse: collapse; margin-bottom: 1em; font-size: 10pt; }
+      th, td { border: 1px solid #9ca3af; padding: 8px; text-align: left; vertical-align: top; }
+      th { background-color: #f3f4f6; font-weight: bold; color: #000; }
+      tr:nth-child(even) { background-color: #fafafa; }
     `;
     container.appendChild(style);
 
-    // Wrap content in a class for specificity if needed, though scoped by container is fine.
     const wrapper = document.createElement('div');
     wrapper.className = 'pdf-root';
     
@@ -342,11 +392,8 @@ const MediaAnalyzer: React.FC = () => {
         </p>
     `;
     wrapper.appendChild(header);
-    
-    // Add Body
     wrapper.appendChild(contentClone);
 
-    // Add Footer
     const footer = document.createElement('div');
     footer.innerHTML = `
         <div style="margin-top: 40px; border-top: 1px solid #e5e7eb; padding-top: 15px; text-align: center; color: #9ca3af; font-size: 10px;">
@@ -372,15 +419,13 @@ const MediaAnalyzer: React.FC = () => {
             scale: 2, 
             useCORS: true, 
             logging: false,
-            windowWidth: 1200, // Force desktop width
+            windowWidth: 1200, 
             scrollY: 0
           },
           jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
         };
 
-        // Delay to allow DOM layout
         await new Promise(resolve => setTimeout(resolve, 800));
-
         await worker().set(opt).from(container).save();
 
     } catch (e: any) {
@@ -396,7 +441,6 @@ const MediaAnalyzer: React.FC = () => {
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    // Could add a toast here
   };
 
   // --- Render ---
@@ -407,6 +451,16 @@ const MediaAnalyzer: React.FC = () => {
         <div className="text-center">
           <h2 className="text-3xl font-bold text-white">多模态内容诊断室</h2>
           <p className="text-gray-400">批量上传，AI 综合分析，对话式打磨优化</p>
+          {messages.length > 0 && (
+             <div className="mt-4">
+                <button 
+                  onClick={() => setPhase('consultation')}
+                  className="text-sm text-brand-400 hover:text-brand-300 underline"
+                >
+                  检测到上次未完成的会话，点击恢复
+                </button>
+             </div>
+          )}
         </div>
         <div className="bg-dark-900 rounded-2xl border border-dark-800 p-8 shadow-2xl">
           <div 
@@ -484,8 +538,12 @@ const MediaAnalyzer: React.FC = () => {
           <button onClick={() => setPhase('upload')} className="text-gray-400 hover:text-white transition-colors">← 返回上传</button>
           <div className="h-6 w-px bg-dark-600"></div>
           <span className="font-semibold text-white">AI 诊断会话</span>
-          <span className="text-xs bg-brand-900 text-brand-300 px-2 py-0.5 rounded-full border border-brand-800 ml-2">{files.length} 个文件</span>
+          {files.length > 0 && <span className="text-xs bg-brand-900 text-brand-300 px-2 py-0.5 rounded-full border border-brand-800 ml-2">{files.length} 个文件</span>}
         </div>
+        <button onClick={clearHistory} className="text-xs text-red-400 hover:text-red-300 px-3 py-1.5 rounded hover:bg-red-900/20 transition-colors flex items-center gap-1">
+          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+          清除会话
+        </button>
       </div>
 
       {/* Messages Area */}
@@ -498,7 +556,24 @@ const MediaAnalyzer: React.FC = () => {
                  : 'bg-dark-800 text-gray-100 rounded-bl-none border border-dark-700'
              }`}>
                <div id={`msg-content-${msg.id}`} className="prose prose-invert prose-base max-w-none prose-brand leading-relaxed">
-                 <ReactMarkdown>{msg.content}</ReactMarkdown>
+                 <ReactMarkdown 
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                        table: ({node, ...props}) => (
+                            <div className="overflow-x-auto my-4 border border-dark-700 rounded-lg">
+                                <table className="min-w-full divide-y divide-dark-700" {...props} />
+                            </div>
+                        ),
+                        th: ({node, ...props}) => (
+                            <th className="px-3 py-2 bg-dark-900 text-left text-xs font-medium text-gray-300 uppercase tracking-wider border-r border-dark-700 last:border-r-0" {...props} />
+                        ),
+                        td: ({node, ...props}) => (
+                            <td className="px-3 py-2 whitespace-normal text-sm text-gray-200 border-r border-dark-700 last:border-r-0 border-t border-dark-700" {...props} />
+                        )
+                    }}
+                 >
+                    {msg.content}
+                 </ReactMarkdown>
                </div>
              </div>
              

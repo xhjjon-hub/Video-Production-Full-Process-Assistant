@@ -1,8 +1,10 @@
+
 import React, { useState } from 'react';
 import Sidebar from './components/Sidebar';
 import TopicFinder from './components/TopicFinder';
 import ScriptWriter from './components/ScriptWriter';
 import MediaAnalyzer from './components/MediaAnalyzer';
+import BenchmarkStudio from './components/BenchmarkStudio';
 import AssistantChat from './components/AssistantChat';
 import { AppView } from './types';
 
@@ -14,6 +16,7 @@ const App: React.FC = () => {
       case AppView.TOPIC_RESEARCH: return '灵感与选题';
       case AppView.SCRIPT_WRITER: return '脚本创作';
       case AppView.CONTENT_AUDIT: return '内容诊断';
+      case AppView.BENCHMARK_STUDIO: return '爆款仿写';
       default: return view.replace('_', ' ');
     }
   };
@@ -35,10 +38,11 @@ const App: React.FC = () => {
              <div className="w-8 h-8 rounded-full bg-dark-800 border border-dark-700"></div>
           </div>
 
-          <div className="mt-4">
+          <div className="mt-4 h-[calc(100%-3rem)]">
             {currentView === AppView.TOPIC_RESEARCH && <TopicFinder />}
             {currentView === AppView.SCRIPT_WRITER && <ScriptWriter />}
             {currentView === AppView.CONTENT_AUDIT && <MediaAnalyzer />}
+            {currentView === AppView.BENCHMARK_STUDIO && <BenchmarkStudio />}
           </div>
         </div>
       </main>

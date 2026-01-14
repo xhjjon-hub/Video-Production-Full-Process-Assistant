@@ -1,15 +1,36 @@
 import React, { useState, useRef, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { chatWithAssistant } from '../services/geminiService';
 import { GenerateContentResponse } from '@google/genai';
 
+const STORAGE_KEY_ASSISTANT = 'viralflow_assistant_history';
+
 const AssistantChat: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
-  const [messages, setMessages] = useState<{role: 'user' | 'model', text: string}[]>([
-    { role: 'model', text: '你好！我是你的创作助手。无论是缺灵感还是想了解算法机制，随时问我！' }
-  ]);
+  const [messages, setMessages] = useState<{role: 'user' | 'model', text: string}[]>([]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    // Load history
+    const saved = localStorage.getItem(STORAGE_KEY_ASSISTANT);
+    if (saved) {
+        try {
+            setMessages(JSON.parse(saved));
+        } catch(e) { console.error(e) }
+    } else {
+        setMessages([{ role: 'model', text: '你好！我是你的创作助手。无论是缺灵感还是想了解算法机制，随时问我！' }]);
+    }
+  }, []);
+
+  useEffect(() => {
+    // Save history
+    if (messages.length > 0) {
+        localStorage.setItem(STORAGE_KEY_ASSISTANT, JSON.stringify(messages));
+    }
+  }, [messages]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -59,6 +80,11 @@ const AssistantChat: React.FC = () => {
     }
   };
 
+  const clearChat = () => {
+      setMessages([{ role: 'model', text: '你好！我是你的创作助手。无论是缺灵感还是想了解算法机制，随时问我！' }]);
+      localStorage.removeItem(STORAGE_KEY_ASSISTANT);
+  };
+
   return (
     <>
       {/* Floating Button */}
@@ -77,14 +103,19 @@ const AssistantChat: React.FC = () => {
       }`} style={{ height: '500px' }}>
         
         {/* Header */}
-        <div className="bg-dark-800 p-4 border-b border-dark-700 flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-brand-400 to-blue-500 flex items-center justify-center text-white text-xs font-bold">
-            AI
+        <div className="bg-dark-800 p-4 border-b border-dark-700 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-brand-400 to-blue-500 flex items-center justify-center text-white text-xs font-bold">
+                AI
+            </div>
+            <div>
+                <h3 className="font-bold text-white text-sm">创作助手</h3>
+                <p className="text-xs text-gray-400">在线</p>
+            </div>
           </div>
-          <div>
-            <h3 className="font-bold text-white text-sm">创作助手</h3>
-            <p className="text-xs text-gray-400">在线</p>
-          </div>
+          <button onClick={clearChat} title="重新开始" className="text-gray-400 hover:text-white">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+          </button>
         </div>
 
         {/* Messages */}
@@ -96,7 +127,7 @@ const AssistantChat: React.FC = () => {
                   ? 'bg-brand-600 text-white rounded-br-none' 
                   : 'bg-dark-800 text-gray-200 rounded-bl-none border border-dark-700'
               }`}>
-                {msg.text}
+                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
               </div>
             </div>
           ))}
