@@ -2,8 +2,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import html2pdf from 'html2pdf.js';
-import { analyzeBenchmarkContent, createImitationSession, sendAuditMessage, createBenchmarkChat } from '../services/geminiService';
-import { ChatMessage, FileData } from '../types';
+import { analyzeBenchmarkContent, createImitationSession, sendAuditMessage, createBenchmarkChat, generateImage, generateVideo } from '../services/geminiService';
+import { ChatMessage, FileData, GeneratedMedia } from '../types';
 import { Chat, GenerateContentResponse } from "@google/genai";
 
 const STORAGE_KEY_BENCHMARK = 'viralflow_benchmark_state';
@@ -23,18 +23,28 @@ const BenchmarkStudio: React.FC = () => {
   const [step2ChatSession, setStep2ChatSession] = useState<Chat | null>(null);
   const [step2Messages, setStep2Messages] = useState<ChatMessage[]>([]);
   const [step2Input, setStep2Input] = useState('');
+  const [step2Files, setStep2Files] = useState<FileData[]>([]);
   const [step2Typing, setStep2Typing] = useState(false);
+  const step2FileInputRef = useRef<HTMLInputElement>(null);
 
   // Step 3: User Input
   const [userIdea, setUserIdea] = useState('');
   const [userFiles, setUserFiles] = useState<FileData[]>([]);
   const userFileInputRef = useRef<HTMLInputElement>(null);
 
-  // Step 4: Chat Guide
+  // Step 4: Chat Guide & Generation
   const [chatSession, setChatSession] = useState<Chat | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
+  const [chatFiles, setChatFiles] = useState<FileData[]>([]);
   const [isTyping, setIsTyping] = useState(false);
+  const chatFileInputRef = useRef<HTMLInputElement>(null);
+  
+  // Generation UI State
+  const [showGenModal, setShowGenModal] = useState(false);
+  const [genType, setGenType] = useState<'image' | 'video'>('image');
+  const [genPrompt, setGenPrompt] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
   
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -45,11 +55,8 @@ const BenchmarkStudio: React.FC = () => {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        // We only restore basic state to avoid complex chat object reconstruction issues
-        // If users refresh, they might start from Step 1 or 3, but losing chat sessions is a trade-off for simplicity without backend
         if (parsed.step) {
-             setStep(parsed.step > 1 ? 1 : 1); // For safety, reset to 1 if deep in flow, or we could try to handle better
-             // Actually let's just restore inputs
+             setStep(parsed.step > 1 ? 1 : 1);
              setRefUrl(parsed.refUrl || '');
              setUserIdea(parsed.userIdea || '');
         }
@@ -59,14 +66,32 @@ const BenchmarkStudio: React.FC = () => {
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY_BENCHMARK, JSON.stringify({
-      step, refUrl, userIdea // Minimal persistence
+      step, refUrl, userIdea
     }));
   }, [step, refUrl, userIdea]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
-  useEffect(() => scrollToBottom(), [messages, isTyping, step2Messages, step2Typing]);
+  useEffect(() => scrollToBottom(), [messages, isTyping, step2Messages, step2Typing, isGenerating]);
+
+  // --- Helpers ---
+  const processFiles = (files: FileList): Promise<FileData[]> => {
+      return Promise.all(Array.from(files).map(file => new Promise<FileData>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+              resolve({
+                  id: Math.random().toString(36),
+                  file,
+                  previewUrl: URL.createObjectURL(file),
+                  base64: (reader.result as string).split(',')[1],
+                  mimeType: file.type,
+                  uploadStatus: 'success', uploadProgress: 100
+              });
+          };
+          reader.readAsDataURL(file);
+      })));
+  };
 
   // --- Handlers ---
 
@@ -87,24 +112,19 @@ const BenchmarkStudio: React.FC = () => {
     }
   };
 
-  const handleUserFilesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleUserFilesChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      const newFiles: FileData[] = [];
-      Array.from(e.target.files).forEach((file: File) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          setUserFiles(prev => [...prev, {
-            id: Math.random().toString(36),
-            file,
-            previewUrl: URL.createObjectURL(file),
-            base64: (reader.result as string).split(',')[1],
-            mimeType: file.type,
-            uploadStatus: 'success', uploadProgress: 100
-          }]);
-        };
-        reader.readAsDataURL(file);
-      });
+      const newFiles = await processFiles(e.target.files);
+      setUserFiles(prev => [...prev, ...newFiles]);
     }
+  };
+
+  const handleChatFilesChange = async (e: React.ChangeEvent<HTMLInputElement>, setFileState: React.Dispatch<React.SetStateAction<FileData[]>>) => {
+      if (e.target.files) {
+          const newFiles = await processFiles(e.target.files);
+          setFileState(prev => [...prev, ...newFiles]);
+      }
+      e.target.value = ''; 
   };
 
   const startAnalysis = async () => {
@@ -116,14 +136,11 @@ const BenchmarkStudio: React.FC = () => {
         refFile ? { data: refFile.base64!, mimeType: refFile.mimeType! } : undefined
       );
       setAnalysisResult(result);
-      
-      // Initialize interactive chat for Step 2
       const chat = createBenchmarkChat(result);
       setStep2ChatSession(chat);
       setStep2Messages([{
           id: 'init', role: 'model', content: result, timestamp: Date.now()
       }]);
-      
       setStep(2);
     } catch (e) {
       console.error(e);
@@ -134,14 +151,24 @@ const BenchmarkStudio: React.FC = () => {
   };
 
   const handleStep2Send = async () => {
-      if (!step2Input.trim() || !step2ChatSession) return;
+      if ((!step2Input.trim() && step2Files.length === 0) || !step2ChatSession) return;
       const txt = step2Input;
+      const filesToSend = [...step2Files];
+      
       setStep2Input('');
-      setStep2Messages(prev => [...prev, { id: Date.now().toString(), role: 'user', content: txt, timestamp: Date.now() }]);
+      setStep2Files([]); 
+      
+      setStep2Messages(prev => [...prev, { 
+          id: Date.now().toString(), 
+          role: 'user', 
+          content: txt + (filesToSend.length > 0 ? `\n[已上传 ${filesToSend.length} 个文件]` : ''), 
+          timestamp: Date.now() 
+      }]);
       setStep2Typing(true);
 
       try {
-        const stream = await sendAuditMessage(step2ChatSession, txt);
+        const filePayload = filesToSend.map(f => ({ data: f.base64!, mimeType: f.mimeType! }));
+        const stream = await sendAuditMessage(step2ChatSession, txt, filePayload);
         const msgId = (Date.now() + 1).toString();
         setStep2Messages(prev => [...prev, { id: msgId, role: 'model', content: '', timestamp: Date.now() }]);
 
@@ -156,24 +183,19 @@ const BenchmarkStudio: React.FC = () => {
   };
 
   const startImitation = async () => {
-    setIsAnalyzing(true); // Reuse loading state
+    setIsAnalyzing(true);
     try {
       const assetsPayload = userFiles.map(f => ({ data: f.base64!, mimeType: f.mimeType! }));
-      
-      // Pass step 2 history to step 4
       const { chat, initialResponseStream } = await createImitationSession(
           analysisResult, 
           userIdea, 
           assetsPayload,
-          step2Messages // Pass history
+          step2Messages 
       );
-      
       setChatSession(chat);
       setStep(4);
-      
       const msgId = Date.now().toString();
       setMessages([{ id: msgId, role: 'model', content: '', timestamp: Date.now() }]);
-
       let fullText = "";
       for await (const chunk of initialResponseStream) {
         const c = chunk as GenerateContentResponse;
@@ -189,14 +211,23 @@ const BenchmarkStudio: React.FC = () => {
   };
 
   const sendMessage = async () => {
-    if (!chatInput.trim() || !chatSession) return;
+    if ((!chatInput.trim() && chatFiles.length === 0) || !chatSession) return;
     const txt = chatInput;
+    const filesToSend = [...chatFiles];
     setChatInput('');
-    setMessages(prev => [...prev, { id: Date.now().toString(), role: 'user', content: txt, timestamp: Date.now() }]);
+    setChatFiles([]);
+
+    setMessages(prev => [...prev, { 
+        id: Date.now().toString(), 
+        role: 'user', 
+        content: txt + (filesToSend.length > 0 ? `\n[已上传 ${filesToSend.length} 个文件]` : ''), 
+        timestamp: Date.now() 
+    }]);
     setIsTyping(true);
 
     try {
-      const stream = await sendAuditMessage(chatSession, txt);
+      const filePayload = filesToSend.map(f => ({ data: f.base64!, mimeType: f.mimeType! }));
+      const stream = await sendAuditMessage(chatSession, txt, filePayload);
       const msgId = (Date.now()+1).toString();
       setMessages(prev => [...prev, { id: msgId, role: 'model', content: '', timestamp: Date.now() }]);
       
@@ -208,6 +239,80 @@ const BenchmarkStudio: React.FC = () => {
       }
     } catch (e) { console.error(e); } 
     finally { setIsTyping(false); }
+  };
+
+  // --- Generation Logic ---
+
+  const handleGenSubmit = async () => {
+    if (!genPrompt.trim()) return;
+    setIsGenerating(true);
+    setShowGenModal(false);
+
+    // Placeholder message
+    const tempId = Date.now().toString();
+    setMessages(prev => [...prev, {
+        id: tempId,
+        role: 'model',
+        content: `🎨 正在调用 ${genType === 'image' ? 'Imagen' : 'Veo'} 模型生成${genType === 'image' ? '图片' : '视频'}，请稍候... \n> 提示词: ${genPrompt}`,
+        timestamp: Date.now(),
+        isThinking: true
+    }]);
+
+    try {
+        let mediaData: GeneratedMedia;
+        if (genType === 'image') {
+            const res = await generateImage(genPrompt);
+            mediaData = {
+                type: 'image',
+                url: `data:${res.mimeType};base64,${res.base64}`,
+                mimeType: res.mimeType,
+                prompt: genPrompt
+            };
+        } else {
+            const uri = await generateVideo(genPrompt);
+            mediaData = {
+                type: 'video',
+                url: uri,
+                mimeType: 'video/mp4',
+                prompt: genPrompt
+            };
+        }
+
+        // Replace placeholder
+        setMessages(prev => prev.map(m => m.id === tempId ? {
+            ...m,
+            content: `✅ ${genType === 'image' ? '图片' : '视频'}生成成功！\n> **提示词**: ${genPrompt}\n\n如果不满意，请在下方告诉我要如何修改。`,
+            isThinking: false,
+            generatedMedia: mediaData
+        } : m));
+
+    } catch (e: any) {
+        setMessages(prev => prev.map(m => m.id === tempId ? {
+            ...m,
+            content: `❌ 生成失败: ${e.message}`,
+            isThinking: false
+        } : m));
+    } finally {
+        setIsGenerating(false);
+    }
+  };
+
+  const downloadMedia = async (media: GeneratedMedia) => {
+    try {
+        const response = await fetch(media.url);
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `generated_${Date.now()}.${media.type === 'image' ? 'png' : 'mp4'}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    } catch (e) {
+        console.error("Download failed", e);
+        alert("下载失败");
+    }
   };
 
   const resetAll = () => {
@@ -225,12 +330,11 @@ const BenchmarkStudio: React.FC = () => {
     }
   };
 
-  // --- PDF Download (Reused Logic) ---
+  // --- PDF Download ---
   const generatePDF = async (messageId: string, content: string) => {
     if (downloadingId) return; 
     setDownloadingId(messageId);
     
-    // Create a generic container for PDF content
     const container = document.createElement('div');
     container.style.position = 'fixed';
     container.style.top = '0';
@@ -248,27 +352,14 @@ const BenchmarkStudio: React.FC = () => {
             .pdf-root { font-family: 'Helvetica', 'Arial', sans-serif; line-height: 1.6; color: #333; }
             h1 { color: #c026d3; font-size: 24px; border-bottom: 2px solid #d946ef; padding-bottom: 10px; margin-bottom: 20px; }
             h2 { font-size: 18px; color: #a21caf; margin-top: 1.5em; font-weight: bold; }
-            h3 { font-size: 16px; font-weight: bold; margin-top: 1.2em; }
-            p { margin-bottom: 0.8em; text-align: justify; }
-            ul, ol { margin-bottom: 0.8em; padding-left: 1.5em; }
-            li { margin-bottom: 0.3em; }
-            strong { color: #000; font-weight: bold; }
-            code { background: #f3f4f6; padding: 2px 4px; border-radius: 4px; font-family: monospace; font-size: 0.9em; }
             table { width: 100%; border-collapse: collapse; margin-bottom: 1em; font-size: 10pt; }
             th, td { border: 1px solid #9ca3af; padding: 8px; text-align: left; }
             th { background-color: #f3f4f6; font-weight: bold; }
         </style>
         <h1>ViralFlow 创作指南</h1>
-        <p style="color: #6b7280; font-size: 12px; margin-bottom: 30px;">
-           生成日期: ${new Date().toLocaleString()}
-        </p>
         <div class="content-body"></div>
-        <div style="margin-top: 40px; border-top: 1px solid #e5e7eb; padding-top: 15px; text-align: center; color: #9ca3af; font-size: 10px;">
-          Generated by Gemini 3.0 & ViralFlow Creator Studio
-        </div>
     `;
 
-    // Grab content from DOM and strip dark mode styles
     const sourceNode = document.getElementById(`msg-content-${messageId}`);
     if (sourceNode) {
         const contentClone = sourceNode.cloneNode(true) as HTMLElement;
@@ -283,32 +374,50 @@ const BenchmarkStudio: React.FC = () => {
         stripClasses(contentClone);
         wrapper.querySelector('.content-body')?.appendChild(contentClone);
     } else {
-        wrapper.querySelector('.content-body')!.innerHTML = `<pre>${content}</pre>`; // Fallback
+        wrapper.querySelector('.content-body')!.innerHTML = `<pre>${content}</pre>`;
     }
-
     container.appendChild(wrapper);
     document.body.appendChild(container);
 
     try {
         let worker: any = html2pdf;
-        if (typeof worker !== 'function' && (worker as any).default) {
-            worker = (worker as any).default;
-        }
-        const opt = {
+        if (typeof worker !== 'function' && (worker as any).default) worker = (worker as any).default;
+        await worker().set({
           margin: 0, 
           filename: `ViralFlow_Guide_${Date.now()}.pdf`,
           image: { type: 'jpeg', quality: 0.98 },
           html2canvas: { scale: 2, useCORS: true },
           jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-        };
-        await worker().set(opt).from(container).save();
-    } catch (e: any) {
-        console.error(e);
-        alert("PDF 生成失败");
-    } finally {
+        }).from(container).save();
+    } catch (e) { console.error(e); } 
+    finally {
         if (document.body.contains(container)) document.body.removeChild(container);
         setDownloadingId(null);
     }
+  };
+
+  // Helper UI for File Previews in Chat
+  const renderChatFilePreviews = (files: FileData[], setFiles: React.Dispatch<React.SetStateAction<FileData[]>>) => {
+      if (files.length === 0) return null;
+      return (
+          <div className="flex gap-2 mb-2 overflow-x-auto px-4">
+              {files.map((f, i) => (
+                  <div key={i} className="relative group shrink-0 w-16 h-16 bg-dark-900 rounded-lg border border-dark-700 overflow-hidden">
+                      {f.mimeType?.startsWith('image') ? (
+                          <img src={f.previewUrl} className="w-full h-full object-cover" />
+                      ) : (
+                          <div className="w-full h-full flex items-center justify-center text-xs text-center p-1 text-gray-400">FILE</div>
+                      )}
+                      <button 
+                        onClick={() => setFiles(prev => prev.filter((_, idx) => idx !== i))}
+                        className="absolute top-0 right-0 bg-red-500/80 text-white w-4 h-4 flex items-center justify-center text-xs rounded-bl-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                          ×
+                      </button>
+                  </div>
+              ))}
+          </div>
+      );
   };
 
   // --- UI Parts ---
@@ -408,7 +517,6 @@ const BenchmarkStudio: React.FC = () => {
                     }}>{msg.content}</ReactMarkdown>
                  </div>
                </div>
-               {/* PDF Button for AI messages in Step 2 as well */}
                {msg.role === 'model' && (
                  <div className="mt-2 ml-1">
                      <button 
@@ -435,17 +543,26 @@ const BenchmarkStudio: React.FC = () => {
        </div>
 
        {/* Input Area */}
-       <div className="p-4 bg-dark-800 border-t border-dark-700 shrink-0">
-          <div className="flex gap-3 max-w-4xl mx-auto">
+       <div className="bg-dark-800 border-t border-dark-700 shrink-0">
+          {renderChatFilePreviews(step2Files, setStep2Files)}
+          <div className="p-4 flex gap-3 max-w-4xl mx-auto">
+             <button 
+               onClick={() => step2FileInputRef.current?.click()}
+               className="bg-dark-900 border border-dark-600 text-gray-400 hover:text-white px-3 rounded-xl hover:border-brand-500 transition-colors"
+               title="上传文件/图片"
+             >
+                📎
+                <input type="file" multiple ref={step2FileInputRef} onChange={(e) => handleChatFilesChange(e, setStep2Files)} className="hidden" />
+             </button>
              <input 
                value={step2Input}
                onChange={(e) => setStep2Input(e.target.value)}
                onKeyDown={(e) => e.key === 'Enter' && handleStep2Send()}
-               placeholder="对分析有疑问？想讨论如何修改？(Enter 发送)"
+               placeholder="输入消息，可粘贴网址链接..."
                className="flex-1 bg-dark-950 border border-dark-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-brand-500"
                disabled={step2Typing}
              />
-             <button onClick={handleStep2Send} disabled={!step2Input.trim() || step2Typing} className="bg-brand-600 text-white px-6 rounded-xl font-bold disabled:opacity-50">发送</button>
+             <button onClick={handleStep2Send} disabled={(!step2Input.trim() && step2Files.length === 0) || step2Typing} className="bg-brand-600 text-white px-6 rounded-xl font-bold disabled:opacity-50">发送</button>
           </div>
        </div>
     </div>
@@ -528,11 +645,33 @@ const BenchmarkStudio: React.FC = () => {
                        th: ({node, ...props}) => <th className="px-3 py-2 bg-dark-900 text-left text-xs font-medium text-gray-300 uppercase tracking-wider border-r border-dark-700 last:border-r-0" {...props} />,
                        td: ({node, ...props}) => <td className="px-3 py-2 whitespace-normal text-sm text-gray-200 border-r border-dark-700 last:border-r-0 border-t border-dark-700" {...props} />
                     }}>{msg.content}</ReactMarkdown>
+                    
+                    {/* Media Display */}
+                    {msg.generatedMedia && (
+                        <div className="mt-4 rounded-xl overflow-hidden border border-dark-600 bg-black/40">
+                            {msg.generatedMedia.type === 'image' ? (
+                                <img src={msg.generatedMedia.url} className="w-full h-auto max-h-[400px] object-contain" alt="Generated" />
+                            ) : (
+                                <video src={msg.generatedMedia.url} controls className="w-full h-auto max-h-[400px]" />
+                            )}
+                            <div className="p-3 bg-dark-900/80 flex justify-between items-center border-t border-dark-700">
+                                <span className="text-xs text-gray-400 truncate flex-1 mr-2">
+                                  {msg.generatedMedia.type === 'image' ? '🖼️ Imagen 3' : '🎥 Veo Video'}
+                                </span>
+                                <button 
+                                  onClick={() => downloadMedia(msg.generatedMedia!)}
+                                  className="text-xs bg-brand-600 hover:bg-brand-500 text-white px-3 py-1.5 rounded flex items-center gap-1 transition-colors"
+                                >
+                                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                                  下载
+                                </button>
+                            </div>
+                        </div>
+                    )}
                  </div>
                </div>
                
-               {/* PDF Download Button for Model Responses */}
-               {msg.role === 'model' && (
+               {msg.role === 'model' && !msg.generatedMedia && !msg.isThinking && (
                  <div className="mt-2 ml-1 flex gap-2">
                      <button 
                        onClick={() => generatePDF(msg.id, msg.content)}
@@ -553,17 +692,87 @@ const BenchmarkStudio: React.FC = () => {
            <div ref={messagesEndRef} />
         </div>
 
-        <div className="p-4 bg-dark-800 border-t border-dark-700 shrink-0">
-          <div className="flex gap-3 max-w-4xl mx-auto">
+        <div className="bg-dark-800 border-t border-dark-700 shrink-0 relative">
+          {/* Generation Modal Popup */}
+          {showGenModal && (
+            <div className="absolute bottom-full left-0 right-0 bg-dark-800 border-t border-dark-700 p-6 shadow-2xl animate-fade-in-up z-20">
+               <div className="max-w-4xl mx-auto">
+                 <div className="flex justify-between items-center mb-4">
+                    <h4 className="text-white font-bold flex items-center gap-2">
+                       ✨ AI 素材生成工厂
+                       <span className="text-xs font-normal text-gray-400 px-2 py-0.5 bg-dark-700 rounded">
+                         {genType === 'image' ? 'Gemini Image (Imagen 3)' : 'Veo Video Generation'}
+                       </span>
+                    </h4>
+                    <button onClick={() => setShowGenModal(false)} className="text-gray-400 hover:text-white">✕</button>
+                 </div>
+                 
+                 <div className="flex gap-4 mb-4">
+                    <button 
+                      onClick={() => setGenType('image')}
+                      className={`flex-1 py-3 rounded-xl border flex items-center justify-center gap-2 transition-all ${genType === 'image' ? 'bg-brand-600 border-brand-500 text-white' : 'bg-dark-900 border-dark-700 text-gray-400 hover:border-gray-500'}`}
+                    >
+                       <span>🖼️</span> 生成参考图
+                    </button>
+                    <button 
+                      onClick={() => setGenType('video')}
+                      className={`flex-1 py-3 rounded-xl border flex items-center justify-center gap-2 transition-all ${genType === 'video' ? 'bg-brand-600 border-brand-500 text-white' : 'bg-dark-900 border-dark-700 text-gray-400 hover:border-gray-500'}`}
+                    >
+                       <span>🎥</span> 生成短视频
+                    </button>
+                 </div>
+
+                 <div className="space-y-3">
+                    <textarea 
+                      value={genPrompt}
+                      onChange={(e) => setGenPrompt(e.target.value)}
+                      placeholder={genType === 'image' ? "描述你想生成的画面，例如：赛博朋克风格的咖啡店，霓虹灯光..." : "描述你想生成的视频，例如：一只猫在太空中飞翔..."}
+                      className="w-full bg-dark-950 border border-dark-600 rounded-xl p-4 text-white focus:border-brand-500 h-24 resize-none"
+                    />
+                    <div className="flex justify-end gap-3">
+                       <button onClick={() => setShowGenModal(false)} className="px-4 py-2 text-gray-400 hover:text-white">取消</button>
+                       <button 
+                         onClick={handleGenSubmit} 
+                         disabled={!genPrompt.trim() || isGenerating}
+                         className="bg-brand-600 hover:bg-brand-500 text-white px-6 py-2 rounded-lg font-bold disabled:opacity-50"
+                       >
+                         {isGenerating ? '请求中...' : '立即生成'}
+                       </button>
+                    </div>
+                 </div>
+               </div>
+            </div>
+          )}
+
+          {renderChatFilePreviews(chatFiles, setChatFiles)}
+          
+          <div className="p-4 flex gap-3 max-w-4xl mx-auto relative z-10">
+             <button 
+               onClick={() => chatFileInputRef.current?.click()}
+               className="bg-dark-900 border border-dark-600 text-gray-400 hover:text-white w-10 h-10 flex items-center justify-center rounded-xl hover:border-brand-500 transition-colors"
+               title="上传文件/图片"
+             >
+                📎
+                <input type="file" multiple ref={chatFileInputRef} onChange={(e) => handleChatFilesChange(e, setChatFiles)} className="hidden" />
+             </button>
+             
+             <button 
+               onClick={() => setShowGenModal(!showGenModal)}
+               className={`w-10 h-10 flex items-center justify-center rounded-xl border transition-colors ${showGenModal ? 'bg-brand-600 text-white border-brand-500' : 'bg-dark-900 border-dark-600 text-brand-400 hover:text-brand-300 hover:border-brand-500'}`}
+               title="AI 生成图片/视频"
+             >
+                ✨
+             </button>
+
              <input 
                value={chatInput}
                onChange={(e) => setChatInput(e.target.value)}
                onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-               placeholder="继续提问：帮我写一段分镜头脚本..."
-               className="flex-1 bg-dark-950 border border-dark-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-brand-500"
+               placeholder="继续提问，或点击 ✨ 生成素材..."
+               className="flex-1 bg-dark-950 border border-dark-600 rounded-xl px-4 py-2 text-white focus:outline-none focus:border-brand-500"
                disabled={isTyping}
              />
-             <button onClick={sendMessage} disabled={!chatInput.trim() || isTyping} className="bg-brand-600 text-white px-6 rounded-xl font-bold disabled:opacity-50">发送</button>
+             <button onClick={sendMessage} disabled={(!chatInput.trim() && chatFiles.length === 0) || isTyping} className="bg-brand-600 text-white px-6 rounded-xl font-bold disabled:opacity-50">发送</button>
           </div>
         </div>
     </div>

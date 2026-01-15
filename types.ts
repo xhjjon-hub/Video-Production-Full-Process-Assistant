@@ -34,8 +34,7 @@ export interface ScriptParams {
   durationSeconds: number;
 }
 
-// Deprecated single result type, keeping for compatibility if needed, 
-// but we are moving to chat-based audit.
+// Deprecated single result type
 export interface AuditResult {
   score: number;
   strengths: string[];
@@ -44,22 +43,30 @@ export interface AuditResult {
   viralPotential: 'Low' | 'Medium' | 'High' | 'Very High';
 }
 
+export interface GeneratedMedia {
+  type: 'image' | 'video';
+  url: string; // Blob URL (image) or Remote URI (video)
+  prompt: string;
+  mimeType: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'model';
   content: string;
   timestamp: number;
-  isThinking?: boolean; // For UI loading state
+  isThinking?: boolean;
+  generatedMedia?: GeneratedMedia; // New field for generated assets
 }
 
 export interface FileData {
-  id: string; // Unique ID for tracking
+  id: string;
   file: File;
   previewUrl: string;
   base64?: string;
   mimeType?: string;
   uploadStatus: 'pending' | 'uploading' | 'success' | 'error';
-  uploadProgress: number; // 0-100
+  uploadProgress: number;
 }
 
 export interface GroundingMetadata {

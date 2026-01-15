@@ -165,9 +165,30 @@ export const createAuditSession = async (
   return { chat, initialResponseStream };
 };
 
-// Send follow-up messages in the audit session
-export const sendAuditMessage = async (chat: Chat, message: string) => {
-  return await chat.sendMessageStream({ message });
+// Send follow-up messages in the audit session (Supports files now)
+export const sendAuditMessage = async (
+  chat: Chat, 
+  message: string,
+  files?: { data: string; mimeType: string }[]
+) => {
+  const parts: any[] = [];
+  
+  // Add files if present
+  if (files && files.length > 0) {
+    files.forEach(f => {
+      parts.push({
+        inlineData: {
+          mimeType: f.mimeType,
+          data: f.data
+        }
+      });
+    });
+  }
+
+  // Add text message
+  parts.push({ text: message });
+
+  return await chat.sendMessageStream({ message: parts });
 };
 
 // Generate final plan based on history
@@ -240,7 +261,7 @@ export const analyzeBenchmarkContent = async (
     model: 'gemini-3-flash-preview',
     contents: { parts },
     config: {
-      tools: url ? [{ googleSearch: {} }] : [], // Use Search if URL is provided
+      tools: [{ googleSearch: {} }], // Always enable search for URL analysis
     }
   });
 
@@ -257,7 +278,8 @@ export const createBenchmarkChat = (initialAnalysis: string): Chat => {
        { role: 'model', parts: [{ text: initialAnalysis }] }
     ],
     config: {
-      systemInstruction: "你正在协助用户分析一个标杆短视频。用户基于你的分析报告（已在历史记录中）可能会提出疑问、表达自己的想法，或者讨论如何修改。请用中文回答，保持专业、敏锐。你的目标是帮助用户深度理解视频的成功逻辑，并激发他们的创作灵感。",
+      tools: [{ googleSearch: {} }], // Enable search for interactive URL checking
+      systemInstruction: "你正在协助用户分析一个标杆短视频。用户基于你的分析报告（已在历史记录中）可能会提出疑问、表达自己的想法，或者讨论如何修改。用户可能会上传额外的图片、视频或文档作为参考，请仔细查看并给出建议。如果用户发送链接，请使用搜索工具查看。请用中文回答，保持专业、敏锐。",
     }
   });
 };
@@ -274,7 +296,8 @@ export const createImitationSession = async (
   const chat = ai.chats.create({
     model: 'gemini-3-flash-preview',
     config: {
-      systemInstruction: "你是一位短视频制作导师。你的任务是根据‘标杆视频的分析报告’，结合‘用户的创意和素材’，指导用户制作出一个具备同样爆款潜质的新视频。你的建议必须具体、可执行，不要说空话。始终使用 Markdown 格式。",
+      tools: [{ googleSearch: {} }], // Enable search for interactive URL checking
+      systemInstruction: "你是一位短视频制作导师。你的任务是根据‘标杆视频的分析报告’，结合‘用户的创意和素材’，指导用户制作出一个具备同样爆款潜质的新视频。用户可能会在对话中上传新文件（PDF脚本、参考图、音频等），请综合分析。如果用户发送链接，请使用搜索工具查看。你的建议必须具体、可执行。始终使用 Markdown 格式。",
     }
   });
 
@@ -317,4 +340,77 @@ export const createImitationSession = async (
 
   const initialResponseStream = await chat.sendMessageStream({ message: parts });
   return { chat, initialResponseStream };
+};
+
+// 6. Media Generation Functions
+
+export const generateImage = async (prompt: string): Promise<{ base64: string, mimeType: string }> => {
+  const ai = getAiClient();
+  const model = 'gemini-2.5-flash-image'; 
+  
+  const response = await ai.models.generateContent({
+    model,
+    contents: {
+      parts: [{ text: prompt }]
+    },
+  });
+
+  // Find image part in the response
+  for (const candidate of response.candidates || []) {
+      for (const part of candidate.content?.parts || []) {
+          if (part.inlineData) {
+              return {
+                  base64: part.inlineData.data,
+                  mimeType: part.inlineData.mimeType
+              };
+          }
+      }
+  }
+  throw new Error("生成图片失败，请重试。");
+};
+
+export const generateVideo = async (prompt: string): Promise<string> => {
+  // Check API Key selection for Veo models
+  const win = window as any;
+  if (win.aistudio && win.aistudio.hasSelectedApiKey) {
+      const hasKey = await win.aistudio.hasSelectedApiKey();
+      if (!hasKey) {
+          if (win.aistudio.openSelectKey) {
+              await win.aistudio.openSelectKey();
+              // Proceed after dialog interaction (naive handling)
+          } else {
+             throw new Error("请先选择付费项目的 API Key 以使用 Veo 视频生成功能。");
+          }
+      }
+  }
+
+  // Use a fresh client to pick up the new key if selected
+  const ai = getAiClient();
+  const model = 'veo-3.1-fast-generate-preview';
+
+  let operation = await ai.models.generateVideos({
+    model,
+    prompt,
+    config: {
+        numberOfVideos: 1,
+        resolution: '720p',
+        aspectRatio: '16:9'
+    }
+  });
+
+  // Polling for video completion
+  while (!operation.done) {
+    await new Promise(resolve => setTimeout(resolve, 5000));
+    operation = await ai.operations.getVideosOperation({ operation });
+  }
+
+  if (operation.error) {
+      throw new Error(operation.error.message || "生成视频失败");
+  }
+
+  const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
+  if (!videoUri) throw new Error("未返回视频链接");
+
+  // Return the URI with the API key appended for direct access
+  return `${videoUri}&key=${process.env.API_KEY}`;
 };
