@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type, Chat } from "@google/genai";
-import { Platform, ScriptParams, TopicResult } from "../types";
+import { Platform, ScriptParams, TopicResult, ChatMessage } from "../types";
 
 // Helper to get client with current key
 const getAiClient = () => {
@@ -12,13 +12,17 @@ const getAiClient = () => {
 };
 
 // 1. Topic Research with Search Grounding
-export const researchTopics = async (query: string, domain: string, platform: Platform): Promise<TopicResult[]> => {
+export const researchTopics = async (query: string, domain: string, platform: Platform, batchIndex: number = 0): Promise<TopicResult[]> => {
   const ai = getAiClient();
   
   const prompt = `
     你是一位短视频爆款内容策略专家。
-    基于用户的请求："${query}"，在"${domain}"领域内，寻找 5 个热门或具有爆款潜力的短视频选题。
-    请重点考虑适合 ${platform} 平台的内容。
+    任务：基于用户的请求 "${query}"，在 "${domain}" 领域内，寻找 5 个适合 **${platform}** 平台的爆款选题。
+    
+    【关键要求】
+    1. **平台强相关**: 选题必须符合 **${platform}** 的用户偏好和算法机制。
+    2. **来源限定**: 搜索并引用的参考视频链接（Sources）必须尽量来自 **${platform}** 平台本身 (例如 ${platform} 的网页版链接)。
+    3. **多样性**: 这是用户请求的第 ${batchIndex + 1} 批次结果。请尝试寻找与之前不同的、更新颖或更冷门的爆款角度，不要重复常规内容。
     
     请使用 Google 搜索查找实时趋势、新闻或最近的爆款视频作为依据。
     
@@ -59,12 +63,21 @@ export const researchTopics = async (query: string, domain: string, platform: Pl
 
   const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks as any[];
   
+  // Create a pool of sources
   const sources = groundingChunks
     ?.filter(c => c.web)
     .map(c => ({ title: c.web.title, url: c.web.uri })) || [];
 
+  // Naive distribution of sources to topics just to ensure they have some links
   if (results.length > 0 && sources.length > 0) {
-    results[0].sources = sources.slice(0, 3);
+    results.forEach((res, idx) => {
+        // Assign 1-2 unique sources to each result if available, otherwise reuse
+        const start = (idx * 2) % sources.length;
+        const topicSources = sources.slice(start, start + 2);
+        if (topicSources.length > 0) {
+            res.sources = topicSources;
+        }
+    });
   }
 
   return results;
@@ -180,6 +193,8 @@ export const chatWithAssistant = async (history: {role: string, parts: {text: st
 };
 
 // 5. Benchmark & Imitation
+
+// Step 1 -> 2: Analyze (returns text, but used to init chat)
 export const analyzeBenchmarkContent = async (
   url: string,
   file?: { data: string; mimeType: string }
@@ -232,10 +247,27 @@ export const analyzeBenchmarkContent = async (
   return response.text || "分析失败";
 };
 
+// Step 2: Interactive Chat Context
+export const createBenchmarkChat = (initialAnalysis: string): Chat => {
+  const ai = getAiClient();
+  return ai.chats.create({
+    model: 'gemini-3-flash-preview',
+    history: [
+       { role: 'user', parts: [{ text: "请帮我分析这个视频。" }] },
+       { role: 'model', parts: [{ text: initialAnalysis }] }
+    ],
+    config: {
+      systemInstruction: "你正在协助用户分析一个标杆短视频。用户基于你的分析报告（已在历史记录中）可能会提出疑问、表达自己的想法，或者讨论如何修改。请用中文回答，保持专业、敏锐。你的目标是帮助用户深度理解视频的成功逻辑，并激发他们的创作灵感。",
+    }
+  });
+};
+
+// Step 3 -> 4: Create Guide with history
 export const createImitationSession = async (
   benchmarkAnalysis: string,
   userIdea: string,
-  userAssets: { data: string; mimeType: string }[]
+  userAssets: { data: string; mimeType: string }[],
+  conversationHistory: ChatMessage[] = []
 ): Promise<{ chat: Chat; initialResponseStream: any }> => {
   const ai = getAiClient();
 
@@ -253,15 +285,23 @@ export const createImitationSession = async (
     });
   });
 
+  // Extract user insights from Step 2 chat to inform the guide
+  const userInsights = conversationHistory
+    .filter(m => m.role === 'user')
+    .map(m => `- ${m.content}`)
+    .join('\n');
+
   const prompt = `
   【任务目标】
   我想基于下方的“标杆视频分析”，制作一个我自己的视频。
   
-  【标杆分析】
+  【标杆分析报告】
   ${benchmarkAnalysis}
   
-  【我的想法/创意】
-  ${userIdea || "我暂时只有一个模糊的概念，请根据标杆帮我发散。"}
+  ${userInsights ? `【我之前的想法/讨论】\n${userInsights}\n` : ''}
+
+  【我的新构思】
+  ${userIdea || "暂无具体构思，请基于以上信息发挥。"}
   
   【我的素材】
   (已上传 ${userAssets.length} 个文件，请查看附件)
@@ -271,7 +311,7 @@ export const createImitationSession = async (
   1.  **脚本大纲**: 模仿标杆的结构，填入我的内容。
   2.  **拍摄清单 (Shot List)**: 基于我的素材或需要补拍的镜头。
   3.  **剪辑指导**: 如何复刻标杆的剪辑节奏。
-  4.  **创新点**: 在模仿的基础上，如何做出我的特色？
+  4.  **创新点**: 结合我的讨论，如何做出我的特色？
   `;
   parts.push({ text: prompt });
 
