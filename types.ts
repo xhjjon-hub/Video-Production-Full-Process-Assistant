@@ -31,7 +31,9 @@ export interface ScriptParams {
   topic: string;
   targetAudience: string;
   tone: string;
-  durationSeconds: number;
+  durationSeconds: number | string; // Allow custom input string initially
+  avoidance?: string; // New: Negative constraints
+  referenceLinks?: string[]; // New: Context links
 }
 
 // Deprecated single result type

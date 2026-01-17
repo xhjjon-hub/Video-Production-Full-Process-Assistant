@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type, Chat } from "@google/genai";
-import { Platform, ScriptParams, TopicResult, ChatMessage } from "../types";
+import { Platform, ScriptParams, TopicResult, ChatMessage, FileData } from "../types";
 
 // Helper to get client with current key
 const getAiClient = () => {
@@ -83,33 +83,90 @@ export const researchTopics = async (query: string, domain: string, platform: Pl
   return results;
 };
 
-// 2. Script Generation
-export const generateVideoScript = async (params: ScriptParams): Promise<string> => {
+// 2. Script Generation (Conversational)
+export const createScriptWriterSession = async (params: ScriptParams, files: FileData[] = []): Promise<{ chat: Chat; initialResponseStream: any }> => {
   const ai = getAiClient();
 
-  const prompt = `
-    为 ${params.platform} 平台创作一个爆款短视频脚本。
-    主题: ${params.topic}
-    目标受众: ${params.targetAudience}
-    基调: ${params.tone}
-    预计时长: ${params.durationSeconds} 秒。
-
-    请**使用中文**并在 Markdown 格式中包含以下部分：
-    - **黄金前 3 秒 (Hook)**: 视觉/听觉钩子，目的是阻止用户划走。
-    - **内容主体**: 核心价值或故事（分场景描述）。
-    - **CTA (行动号召)**: 引导关注或互动。
-    - **视觉提示**: 镜头角度、画面描述、文字贴纸。
-    - **音频提示**: 背景音乐风格、音效。
-    
-    请在最后简要解释一下这开头 (Hook) 背后的策略。
-  `;
-
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-pro-preview', 
-    contents: prompt,
+  const chat = ai.chats.create({
+    model: 'gemini-3-pro-preview', // Use Pro for creative writing
+    config: {
+      systemInstruction: "你是一位金牌短视频编剧和导演。你的任务是为用户创作高质量、高完播率的短视频脚本。在后续对话中，用户可能会要求修改脚本的某个部分（如优化开头、调整语气、缩短时长等），请根据指令灵活调整。请始终使用 Markdown 格式输出，包含分镜、台词、画面描述等要素。",
+      tools: [{ googleSearch: {} }], // Enable search for checking links
+    }
   });
 
-  return response.text || "生成脚本失败。";
+  // Construct Initial Prompt
+  let promptText = `
+    请为 ${params.platform} 平台创作一个爆款短视频脚本。
+
+    【基本信息】
+    - 主题: ${params.topic}
+    - 目标受众: ${params.targetAudience}
+    - 基调/风格: ${params.tone}
+    - 目标时长: ${params.durationSeconds} 秒 (请严格控制字数和节奏以符合此时长)
+  `;
+
+  if (params.referenceLinks && params.referenceLinks.length > 0) {
+    promptText += `\n\n【参考链接/NotebookLM 资料】(请结合以下链接内容作为背景知识或风格参考):\n${params.referenceLinks.join('\n')}`;
+  }
+
+  if (files.length > 0) {
+    promptText += `\n\n【参考附件】\n我上传了 ${files.length} 个文件（文档、音频或视频）。请务必深入阅读/观看这些素材，提取其中的核心知识点、金句或风格，并将其融入到脚本创作中。`;
+  }
+
+  if (params.avoidance) {
+    promptText += `\n\n【⛔ 避坑指南/禁忌事项】\n请绝对避免以下内容或方向：\n${params.avoidance}`;
+  }
+
+  promptText += `
+    \n【输出要求】
+    请**使用中文**并在 Markdown 格式中包含以下部分：
+    1. **标题方案**: 提供 3 个高点击率的标题备选。
+    2. **黄金前 3 秒 (Hook)**: 极其重要的开头，包含画面描述和第一句台词，目的是阻止划走。
+    3. **脚本正文**: 分镜头描述（景别、运镜）、台词（逐字稿）、动作/表情。
+    4. **CTA (行动号召)**: 自然地引导关注或互动。
+    5. **BGM & 音效建议**: 具体到情绪或风格。
+    
+    请在脚本最后，简要说明你是如何利用我提供的“参考资料”或“避坑指南”进行创作的。
+  `;
+
+  // Build Parts
+  const parts: any[] = [];
+  
+  // Add Files
+  files.forEach(f => {
+    if (f.base64 && f.mimeType) {
+      parts.push({
+        inlineData: {
+          mimeType: f.mimeType,
+          data: f.base64
+        }
+      });
+    }
+  });
+
+  // Add Text
+  parts.push({ text: promptText });
+
+  const initialResponseStream = await chat.sendMessageStream({
+    message: parts
+  });
+
+  return { chat, initialResponseStream };
+};
+
+// Deprecated single-shot function, kept for compatibility if needed, but not used in new flow
+export const generateVideoScript = async (params: ScriptParams, files: FileData[] = []): Promise<string> => {
+  const { initialResponseStream } = await createScriptWriterSession(params, files);
+  let text = "";
+  for await (const chunk of initialResponseStream) {
+      text += (chunk as any).text || "";
+  }
+  return text;
+};
+
+export const sendScriptMessage = async (chat: Chat, message: string) => {
+    return await chat.sendMessageStream({ message });
 };
 
 // 3. Multi-File Interactive Audit Session
