@@ -6,10 +6,12 @@ import ScriptWriter from './components/ScriptWriter';
 import MediaAnalyzer from './components/MediaAnalyzer';
 import BenchmarkStudio from './components/BenchmarkStudio';
 import AssistantChat from './components/AssistantChat';
+import { PromptManager } from './components/PromptLibrary';
 import { AppView } from './types';
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>(AppView.TOPIC_RESEARCH);
+  const [showPromptManager, setShowPromptManager] = useState(false);
 
   const getViewTitle = (view: AppView) => {
     switch (view) {
@@ -24,17 +26,20 @@ const App: React.FC = () => {
   return (
     <div className="flex h-screen w-full bg-dark-950 text-white overflow-hidden">
       {/* Sidebar Navigation */}
-      <Sidebar currentView={currentView} onChangeView={setCurrentView} />
+      <Sidebar 
+        currentView={currentView} 
+        onChangeView={setCurrentView} 
+        onOpenPromptManager={() => setShowPromptManager(true)}
+      />
 
       {/* Main Content Area */}
       <main className="flex-1 h-full overflow-y-auto relative">
         <div className="max-w-7xl mx-auto p-6 lg:p-10 min-h-full">
-          {/* Header Area (Optional breadcrumb/title per page) */}
+          {/* Header Area */}
           <div className="mb-2 flex items-center justify-between">
              <div className="text-sm text-gray-500 uppercase tracking-wider font-semibold">
                {getViewTitle(currentView)}
              </div>
-             {/* Example Profile/Settings Placeholder */}
              <div className="w-8 h-8 rounded-full bg-dark-800 border border-dark-700"></div>
           </div>
 
@@ -49,6 +54,9 @@ const App: React.FC = () => {
 
       {/* Global Features */}
       <AssistantChat />
+      
+      {/* Modal Layer */}
+      {showPromptManager && <PromptManager onClose={() => setShowPromptManager(false)} />}
     </div>
   );
 };

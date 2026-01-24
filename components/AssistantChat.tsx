@@ -1,8 +1,10 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { chatWithAssistant } from '../services/geminiService';
 import { GenerateContentResponse } from '@google/genai';
+import { PromptPicker } from './PromptLibrary';
 
 const STORAGE_KEY_ASSISTANT = 'viralflow_assistant_history';
 
@@ -146,7 +148,8 @@ const AssistantChat: React.FC = () => {
 
         {/* Input */}
         <div className="p-3 bg-dark-800 border-t border-dark-700">
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
+            <PromptPicker onSelect={setInput} currentValue={input} position="top" />
             <input
               type="text"
               value={input}

@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -5,6 +6,7 @@ import html2pdf from 'html2pdf.js';
 import { analyzeBenchmarkContent, createImitationSession, sendAuditMessage, createBenchmarkChat, generateImage, generateVideo } from '../services/geminiService';
 import { ChatMessage, FileData, GeneratedMedia } from '../types';
 import { Chat, GenerateContentResponse } from "@google/genai";
+import { PromptPicker } from './PromptLibrary';
 
 const STORAGE_KEY_BENCHMARK = 'viralflow_benchmark_state';
 
@@ -545,7 +547,7 @@ const BenchmarkStudio: React.FC = () => {
        {/* Input Area */}
        <div className="bg-dark-800 border-t border-dark-700 shrink-0">
           {renderChatFilePreviews(step2Files, setStep2Files)}
-          <div className="p-4 flex gap-3 max-w-4xl mx-auto">
+          <div className="p-4 flex gap-3 max-w-4xl mx-auto items-center">
              <button 
                onClick={() => step2FileInputRef.current?.click()}
                className="bg-dark-900 border border-dark-600 text-gray-400 hover:text-white px-3 rounded-xl hover:border-brand-500 transition-colors"
@@ -554,6 +556,7 @@ const BenchmarkStudio: React.FC = () => {
                 📎
                 <input type="file" multiple ref={step2FileInputRef} onChange={(e) => handleChatFilesChange(e, setStep2Files)} className="hidden" />
              </button>
+             <PromptPicker onSelect={setStep2Input} currentValue={step2Input} position="top" />
              <input 
                value={step2Input}
                onChange={(e) => setStep2Input(e.target.value)}
@@ -579,7 +582,10 @@ const BenchmarkStudio: React.FC = () => {
 
         <div className="space-y-6">
           <div>
-            <label className="block text-gray-400 text-sm mb-2">你的创意 / 想法</label>
+            <div className="flex justify-between items-center mb-1">
+               <label className="block text-gray-400 text-sm">你的创意 / 想法</label>
+               <PromptPicker onSelect={setUserIdea} currentValue={userIdea} />
+            </div>
             <textarea 
               value={userIdea}
               onChange={(e) => setUserIdea(e.target.value)}
@@ -723,6 +729,10 @@ const BenchmarkStudio: React.FC = () => {
                  </div>
 
                  <div className="space-y-3">
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="text-xs text-gray-400">提示词</label>
+                      <PromptPicker onSelect={setGenPrompt} currentValue={genPrompt} />
+                    </div>
                     <textarea 
                       value={genPrompt}
                       onChange={(e) => setGenPrompt(e.target.value)}
@@ -746,7 +756,7 @@ const BenchmarkStudio: React.FC = () => {
 
           {renderChatFilePreviews(chatFiles, setChatFiles)}
           
-          <div className="p-4 flex gap-3 max-w-4xl mx-auto relative z-10">
+          <div className="p-4 flex gap-3 max-w-4xl mx-auto items-center relative z-10">
              <button 
                onClick={() => chatFileInputRef.current?.click()}
                className="bg-dark-900 border border-dark-600 text-gray-400 hover:text-white w-10 h-10 flex items-center justify-center rounded-xl hover:border-brand-500 transition-colors"
@@ -763,6 +773,8 @@ const BenchmarkStudio: React.FC = () => {
              >
                 ✨
              </button>
+
+             <PromptPicker onSelect={setChatInput} currentValue={chatInput} position="top" />
 
              <input 
                value={chatInput}

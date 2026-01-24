@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type, Chat } from "@google/genai";
-import { Platform, ScriptParams, TopicResult, ChatMessage, FileData } from "../types";
+import { Platform, ScriptParams, TopicResult, ChatMessage, FileData, AuditTone } from "../types";
 
 // Helper to get client with current key
 const getAiClient = () => {
@@ -169,26 +169,89 @@ export const sendScriptMessage = async (chat: Chat, message: string) => {
     return await chat.sendMessageStream({ message });
 };
 
-// 3. Multi-File Interactive Audit Session
+// 3. Multi-File Interactive Audit Session (Updated for Tone Selection)
 export const createAuditSession = async (
-  files: { data: string; mimeType: string }[],
-  context: string
+  userAssets: { data: string; mimeType: string }[],
+  benchmarkAssets: { data: string; mimeType: string }[],
+  context: string,
+  tone: AuditTone
 ): Promise<{ chat: Chat; initialResponseStream: any }> => {
   const ai = getAiClient();
 
-  // Initialize a chat session specifically for this audit
+  // Define System Instructions based on Tone
+  let systemInstruction = "";
+
+  switch (tone) {
+    case AuditTone.CRITICAL:
+      systemInstruction = `
+        你是一位极其严格、眼光毒辣的顶级电影导演和短视频算法专家。你的任务是对用户上传的视频进行残酷但真实的诊断。
+        【核心原则】
+        1. **拒绝客套**：不要使用“做的不错但可以更好”之类的废话。如果开头很烂，直接说“前3秒就会流失90%的用户”。
+        2. **客观犀利**：你的评价必须建立在视听语言、算法逻辑和用户心理学基础上，不要顾及用户的面子，真实的批评才是最大的帮助。
+        3. **结果导向**：所有的建议必须是为了提高完播率、互动率和涨粉率。
+      `;
+      break;
+    case AuditTone.ENCOURAGING:
+      systemInstruction = `
+        你是一位温柔、循循善诱的创作导师。你的任务是发现用户视频中的闪光点，并温和地提出改进建议。
+        【核心原则】
+        1. **赞赏优先**：先找出视频中做得好的地方，给予肯定，建立用户的自信心。
+        2. **温和建议**：用“如果这样调整会更好”代替“你这里做错了”。
+        3. **激发潜能**：鼓励用户继续创作，强调每一次尝试都是进步。
+      `;
+      break;
+    case AuditTone.ANALYTICAL:
+      systemInstruction = `
+        你是一位影视学院的教授和数据分析师。你的任务是对视频进行深度的结构化拆解和学术分析。
+        【核心原则】
+        1. **理论支撑**：运用视听语言理论、叙事结构模型（如英雄之旅）进行分析。
+        2. **数据思维**：预估完播率曲线，分析用户流失点。
+        3. **结构化输出**：评价必须逻辑严密，分类清晰。
+      `;
+      break;
+    case AuditTone.OBJECTIVE:
+    default:
+      systemInstruction = `
+        你是一位客观、公正的第三方审核员。你的任务是基于行业标准对视频进行无偏见的评估。
+        【核心原则】
+        1. **实事求是**：只陈述观察到的事实，不带有强烈的情感色彩。
+        2. **标准统一**：依据画面质量、声音清晰度、内容完整性等通用标准进行评价。
+        3. **平衡视角**：同时指出优点和缺点，比例适中。
+      `;
+      break;
+  }
+
+  // Common instruction for benchmark comparison if present
+  systemInstruction += `
+    \n如果用户提供了“对标视频（Benchmark）”，请将其视为标准答案，将用户的视频与之逐帧对比，找出差距。
+    请始终使用中文回答，使用 Markdown 格式。
+  `;
+
   const chat = ai.chats.create({
-    model: 'gemini-3-flash-preview', // High context window for multiple files
+    model: 'gemini-3-flash-preview', 
     config: {
-      systemInstruction: "你是一位资深的短视频内容导演和算法专家。用户会上传一个或多个素材（视频、图片、文档）。请综合分析这些素材，指出优缺点，并给出具体的修改建议。在后续对话中，你需要协助用户优化方案，直到生成最终执行计划。请始终使用中文回答，格式清晰，使用 Markdown。",
+      systemInstruction: systemInstruction,
     },
   });
 
-  // Prepare the first message with all files
   const parts: any[] = [];
   
-  // 1. Add all files as inline data
-  files.forEach(f => {
+  // 1. Add Benchmark Assets (if any)
+  if (benchmarkAssets.length > 0) {
+    parts.push({ text: "【⭐ 满分对标/参考素材 (Benchmark Assets)】\n以下文件是行业内的优秀案例或我想模仿的对象，请以此为标准：" });
+    benchmarkAssets.forEach(f => {
+      parts.push({
+        inlineData: {
+          mimeType: f.mimeType,
+          data: f.data
+        }
+      });
+    });
+  }
+
+  // 2. Add User Assets
+  parts.push({ text: "\n【📝 待诊断素材 (User Assets)】\n以下是我自己制作的视频/素材，请对我进行诊断：" });
+  userAssets.forEach(f => {
     parts.push({
       inlineData: {
         mimeType: f.mimeType,
@@ -197,24 +260,37 @@ export const createAuditSession = async (
     });
   });
 
-  // 2. Add the text prompt
-  const initialPrompt = `
-    我对这些上传的素材进行了整理。
+  // 3. Add the prompt
+  const hasBenchmarks = benchmarkAssets.length > 0;
+  
+  let initialPrompt = `
     背景/目标：${context || "暂无特殊背景，请以打造爆款为目标"}。
-
-    请对这些文件进行**综合诊断**：
-    1. **整体评分与简评**：给这组素材打分（1-100），并一句话总结。
-    2. **单项分析**：如果只是一个文件，详细分析。如果是多个，请对比分析它们之间的关联、一致性或优劣。
-    3. **黄金前3秒 (Hook)**：评估开头吸引力。
-    4. **爆款潜力预估**：(Low/Medium/High/Very High)。
-    5. **改进建议**：给出 3-5 条最关键的可执行建议。
-
-    请用 Markdown 格式输出分析报告。
+    当前评价模式：${tone}。请务必保持这个语调和人设。
   `;
+
+  if (hasBenchmarks) {
+    initialPrompt += `
+    **请进行【对比诊断】**：
+    我提供了“对标视频”和“我的视频”。请根据我的评价风格要求，分析我的视频与对标视频的差距。
+    请分析：
+    1. **Hook (前3秒)**: 差距在哪里？
+    2. **节奏与剪辑**: 哪里不如对标视频？
+    3. **视觉/表现力**: 画面质感、运镜对比。
+    `;
+  } else {
+    initialPrompt += `
+    **请进行【深度诊断】**：
+    请根据我的评价风格要求，对这些素材进行综合评估。
+    请分析：
+    1. **亮点与槽点**。
+    2. **完播率预估**。
+    3. **改进建议**。
+    `;
+  }
+
+  initialPrompt += `\n最后，请给出 3-5 条具体的修改建议。`;
   parts.push({ text: initialPrompt });
 
-  // Send the initial complex message
-  // We return the stream so the UI can show it typing
   const initialResponseStream = await chat.sendMessageStream({
     message: parts
   });

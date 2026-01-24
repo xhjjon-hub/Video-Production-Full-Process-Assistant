@@ -6,6 +6,7 @@ import html2pdf from 'html2pdf.js';
 import { createScriptWriterSession, sendScriptMessage } from '../services/geminiService';
 import { Platform, ScriptParams, FileData, ChatMessage } from '../types';
 import { Chat, GenerateContentResponse } from "@google/genai";
+import { PromptPicker } from './PromptLibrary';
 
 const ScriptWriter: React.FC = () => {
   // Step 1: Form, Step 2: Chat
@@ -220,7 +221,10 @@ const ScriptWriter: React.FC = () => {
 
             {/* Core Info */}
             <div>
-              <label className="block text-sm font-medium text-gray-400 mb-2">视频主题 <span className="text-red-500">*</span></label>
+              <div className="flex justify-between items-center mb-1">
+                 <label className="block text-sm font-medium text-gray-400">视频主题 <span className="text-red-500">*</span></label>
+                 <PromptPicker onSelect={(val) => handleChange('topic', val)} currentValue={formData.topic} />
+              </div>
               <textarea
                 value={formData.topic}
                 onChange={(e) => handleChange('topic', e.target.value)}
@@ -232,7 +236,10 @@ const ScriptWriter: React.FC = () => {
             {/* Target & Tone */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-2">目标受众</label>
+                  <div className="flex justify-between items-center mb-1">
+                     <label className="block text-sm font-medium text-gray-400">目标受众</label>
+                     <PromptPicker onSelect={(val) => handleChange('targetAudience', val)} currentValue={formData.targetAudience} />
+                  </div>
                   <input
                     type="text"
                     value={formData.targetAudience}
@@ -348,7 +355,10 @@ const ScriptWriter: React.FC = () => {
 
             {/* Avoidance */}
             <div className="border-t border-dark-700 pt-4">
-               <label className="block text-sm font-medium text-red-400 mb-2">⛔ 避坑指南 / 禁忌事项</label>
+               <div className="flex justify-between items-center mb-1">
+                 <label className="block text-sm font-medium text-red-400">⛔ 避坑指南 / 禁忌事项</label>
+                 <PromptPicker onSelect={(val) => handleChange('avoidance', val)} currentValue={formData.avoidance} />
+               </div>
                <textarea
                  value={formData.avoidance}
                  onChange={(e) => handleChange('avoidance', e.target.value)}
@@ -427,7 +437,8 @@ const ScriptWriter: React.FC = () => {
 
            {/* Input Area */}
            <div className="p-4 bg-dark-800 border-t border-dark-700 shrink-0">
-              <div className="flex gap-3 max-w-4xl mx-auto">
+              <div className="flex gap-3 max-w-4xl mx-auto items-center">
+                 <PromptPicker onSelect={(val) => setChatInput(val)} currentValue={chatInput} position="top" />
                  <input 
                    value={chatInput}
                    onChange={(e) => setChatInput(e.target.value)}

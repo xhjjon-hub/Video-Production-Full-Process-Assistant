@@ -1,6 +1,8 @@
+
 import React, { useState } from 'react';
 import { researchTopics } from '../services/geminiService';
 import { Platform, TopicResult } from '../types';
+import { PromptPicker } from './PromptLibrary';
 
 const TopicFinder: React.FC = () => {
   const [query, setQuery] = useState('');
@@ -87,7 +89,10 @@ const TopicFinder: React.FC = () => {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-400 mb-1">你想探索什么方向？</label>
+          <div className="flex justify-between items-center mb-1">
+             <label className="block text-sm font-medium text-gray-400">你想探索什么方向？</label>
+             <PromptPicker onSelect={setQuery} currentValue={query} />
+          </div>
           <div className="relative">
             <input 
               type="text"

@@ -5,9 +5,10 @@ import { AppView } from '../types';
 interface SidebarProps {
   currentView: AppView;
   onChangeView: (view: AppView) => void;
+  onOpenPromptManager: () => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView }) => {
+const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, onOpenPromptManager }) => {
   const navItems = [
     { id: AppView.TOPIC_RESEARCH, label: '💡 灵感与选题', icon: '🔍' },
     { id: AppView.SCRIPT_WRITER, label: '📝 脚本创作', icon: '✍️' },
@@ -39,6 +40,16 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView }) => {
             <span className="font-medium text-sm">{item.label}</span>
           </button>
         ))}
+
+        <div className="my-4 border-t border-dark-800 mx-2"></div>
+
+        <button
+          onClick={onOpenPromptManager}
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 text-gray-400 hover:bg-dark-800 hover:text-white"
+        >
+           <span className="text-xl">📚</span>
+           <span className="font-medium text-sm">提示词库</span>
+        </button>
       </nav>
 
       <div className="p-4 border-t border-dark-800">

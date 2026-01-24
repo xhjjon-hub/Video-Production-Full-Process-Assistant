@@ -15,6 +15,13 @@ export enum Platform {
   RED_NOTE = '小红书'
 }
 
+export enum AuditTone {
+  CRITICAL = '毒舌刻薄 (Critical)',
+  OBJECTIVE = '客观理智 (Objective)',
+  ENCOURAGING = '温柔鼓励 (Encouraging)',
+  ANALYTICAL = '深度学术 (Analytical)'
+}
+
 export interface TopicResult {
   title: string;
   description: string;
@@ -78,4 +85,10 @@ export interface GroundingMetadata {
       title: string;
     }
   }>
+}
+
+export interface PromptTemplate {
+  id: string;
+  title: string;
+  content: string;
 }
