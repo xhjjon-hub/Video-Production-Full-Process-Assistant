@@ -7,11 +7,12 @@ import MediaAnalyzer from './components/MediaAnalyzer';
 import BenchmarkStudio from './components/BenchmarkStudio';
 import AssistantChat from './components/AssistantChat';
 import { PromptManager } from './components/PromptLibrary';
-import { AppView } from './types';
+import { AppView, ScriptParams } from './types';
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>(AppView.TOPIC_RESEARCH);
   const [showPromptManager, setShowPromptManager] = useState(false);
+  const [initialScriptParams, setInitialScriptParams] = useState<Partial<ScriptParams> | null>(null);
 
   const getViewTitle = (view: AppView) => {
     switch (view) {
@@ -21,6 +22,11 @@ const App: React.FC = () => {
       case AppView.BENCHMARK_STUDIO: return '爆款仿写';
       default: return view.replace('_', ' ');
     }
+  };
+
+  const handleNavigateToScriptWriter = (params: Partial<ScriptParams>) => {
+    setInitialScriptParams(params);
+    setCurrentView(AppView.SCRIPT_WRITER);
   };
 
   return (
@@ -44,8 +50,12 @@ const App: React.FC = () => {
           </div>
 
           <div className="mt-4 h-[calc(100%-3rem)]">
-            {currentView === AppView.TOPIC_RESEARCH && <TopicFinder />}
-            {currentView === AppView.SCRIPT_WRITER && <ScriptWriter />}
+            {currentView === AppView.TOPIC_RESEARCH && (
+              <TopicFinder onNavigateToScript={handleNavigateToScriptWriter} />
+            )}
+            {currentView === AppView.SCRIPT_WRITER && (
+              <ScriptWriter initialParams={initialScriptParams} />
+            )}
             {currentView === AppView.CONTENT_AUDIT && <MediaAnalyzer />}
             {currentView === AppView.BENCHMARK_STUDIO && <BenchmarkStudio />}
           </div>

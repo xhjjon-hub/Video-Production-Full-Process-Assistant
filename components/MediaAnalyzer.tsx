@@ -15,7 +15,8 @@ const MediaAnalyzer: React.FC = () => {
   // Phase: 'upload' | 'consultation'
   const [phase, setPhase] = useState<'upload' | 'consultation'>('upload');
   
-  // Upload State - Two buckets
+  // Upload State - Three buckets
+  const [historyFiles, setHistoryFiles] = useState<FileData[]>([]);
   const [userFiles, setUserFiles] = useState<FileData[]>([]);
   const [benchmarkFiles, setBenchmarkFiles] = useState<FileData[]>([]);
   const [selectedTone, setSelectedTone] = useState<AuditTone>(AuditTone.CRITICAL);
@@ -23,6 +24,7 @@ const MediaAnalyzer: React.FC = () => {
   const [context, setContext] = useState('');
   
   // Refs for hidden inputs
+  const historyFileInputRef = useRef<HTMLInputElement>(null);
   const userFileInputRef = useRef<HTMLInputElement>(null);
   const benchmarkFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -71,6 +73,7 @@ const MediaAnalyzer: React.FC = () => {
     if (window.confirm("确定要清除所有历史记录并开始新的诊断吗？")) {
       setMessages([]);
       setUserFiles([]);
+      setHistoryFiles([]);
       setBenchmarkFiles([]);
       setPhase('upload');
       setChatSession(null);
@@ -141,6 +144,15 @@ const MediaAnalyzer: React.FC = () => {
     reader.readAsDataURL(fileData.file);
   };
 
+  const handleHistoryFilesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const newFiles = processFileList(e.target.files);
+      setHistoryFiles(prev => [...prev, ...newFiles]);
+      newFiles.forEach(f => readFileContent(f, setHistoryFiles));
+    }
+    if (historyFileInputRef.current) historyFileInputRef.current.value = '';
+  };
+
   const handleUserFilesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const newFiles = processFileList(e.target.files);
@@ -159,6 +171,7 @@ const MediaAnalyzer: React.FC = () => {
     if (benchmarkFileInputRef.current) benchmarkFileInputRef.current.value = '';
   };
 
+  const removeHistoryFile = (id: string) => setHistoryFiles(prev => prev.filter(f => f.id !== id));
   const removeUserFile = (id: string) => setUserFiles(prev => prev.filter(f => f.id !== id));
   const removeBenchmarkFile = (id: string) => setBenchmarkFiles(prev => prev.filter(f => f.id !== id));
 
@@ -200,15 +213,16 @@ const MediaAnalyzer: React.FC = () => {
   // --- Audit Logic ---
 
   const startAudit = async () => {
+    const pendingHistory = historyFiles.some(f => f.uploadStatus !== 'success');
     const pendingUser = userFiles.some(f => f.uploadStatus !== 'success');
     const pendingBench = benchmarkFiles.some(f => f.uploadStatus !== 'success');
     
-    if (pendingUser || pendingBench) {
+    if (pendingHistory || pendingUser || pendingBench) {
       alert("请等待所有文件上传完成后再开始分析。");
       return;
     }
     if (userFiles.length === 0) {
-        alert("请至少上传一个你的作品");
+        alert("请至少上传一个当前版本的作品");
         return;
     }
 
@@ -224,10 +238,17 @@ const MediaAnalyzer: React.FC = () => {
     }, 200);
 
     try {
+      const historyPayloads = historyFiles.map(f => ({ data: f.base64!, mimeType: f.mimeType! }));
       const userPayloads = userFiles.map(f => ({ data: f.base64!, mimeType: f.mimeType! }));
       const benchPayloads = benchmarkFiles.map(f => ({ data: f.base64!, mimeType: f.mimeType! }));
 
-      const { chat, initialResponseStream } = await createAuditSession(userPayloads, benchPayloads, context, selectedTone);
+      const { chat, initialResponseStream } = await createAuditSession(
+          userPayloads, 
+          benchPayloads, 
+          historyPayloads,
+          context, 
+          selectedTone
+      );
       
       clearInterval(progressInterval);
       setAnalysisProgress(100); 
@@ -350,10 +371,10 @@ const MediaAnalyzer: React.FC = () => {
 
   if (phase === 'upload') {
     return (
-      <div className="max-w-6xl mx-auto space-y-8 pb-12 animate-fade-in">
+      <div className="max-w-7xl mx-auto space-y-8 pb-12 animate-fade-in">
         <div className="text-center">
           <h2 className="text-3xl font-bold text-white">AI 内容诊断室</h2>
-          <p className="text-gray-400 mt-2">支持单/多视频上传，无论是否有对标视频，AI 都能为您深度分析。</p>
+          <p className="text-gray-400 mt-2">支持历史版本迭代对比、当前版本深度诊断以及对标分析。</p>
           {messages.length > 0 && (
              <div className="mt-4">
                 <button onClick={() => setPhase('consultation')} className="text-sm text-brand-400 hover:text-brand-300 underline">恢复上次会话</button>
@@ -361,53 +382,73 @@ const MediaAnalyzer: React.FC = () => {
           )}
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Left: User Content */}
-            <div className="bg-dark-900 rounded-2xl border border-dark-800 p-6 flex flex-col shadow-xl">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* 1. History (Left) */}
+            <div className="bg-dark-900/50 rounded-2xl border border-dashed border-gray-700/50 p-6 flex flex-col relative">
+                <div className="mb-4 flex items-center justify-between">
+                    <h3 className="text-lg font-bold text-gray-300 flex items-center gap-2">
+                        <span>📜</span> 历史版本 (旧)
+                    </h3>
+                    <span className="text-xs bg-dark-800 px-2 py-1 rounded text-gray-500">对比用</span>
+                </div>
+                
+                <div 
+                    onClick={() => historyFileInputRef.current?.click()}
+                    className="flex-1 border-2 border-dashed border-dark-700 hover:border-gray-500 hover:bg-dark-800/30 rounded-xl flex flex-col items-center justify-center cursor-pointer transition-all min-h-[150px] mb-4"
+                >
+                    <input type="file" multiple ref={historyFileInputRef} onChange={handleHistoryFilesChange} className="hidden" accept="video/*" />
+                    <span className="text-3xl mb-2 grayscale opacity-50">📼</span>
+                    <p className="text-sm text-gray-500">上传修改前的版本</p>
+                    <p className="text-xs text-gray-600 mt-1">AI 将分析修改效果</p>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 min-h-[40px]">
+                    {historyFiles.map(f => <div key={f.id}>{renderFilePreview(f, removeHistoryFile)}</div>)}
+                </div>
+            </div>
+
+            {/* 2. Current (Center - Main) */}
+            <div className="bg-dark-900 rounded-2xl border border-brand-800/50 p-6 flex flex-col shadow-xl ring-1 ring-brand-900/20">
                 <div className="mb-4 flex items-center justify-between">
                     <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                        <span>📝</span> 我的作品 (待批改)
+                        <span>📝</span> 当前版本 (新)
                     </h3>
-                    <span className="text-xs bg-dark-800 px-2 py-1 rounded text-gray-400">支持批量</span>
+                    <span className="text-xs bg-brand-900/30 text-brand-300 border border-brand-800 px-2 py-1 rounded">必填</span>
                 </div>
                 
                 <div 
                     onClick={() => userFileInputRef.current?.click()}
-                    className="flex-1 border-2 border-dashed border-dark-700 hover:border-brand-500 hover:bg-dark-800/30 rounded-xl flex flex-col items-center justify-center cursor-pointer transition-all min-h-[150px] mb-4"
+                    className="flex-1 border-2 border-dashed border-brand-900/50 hover:border-brand-500 hover:bg-dark-800/50 rounded-xl flex flex-col items-center justify-center cursor-pointer transition-all min-h-[150px] mb-4"
                 >
                     <input type="file" multiple ref={userFileInputRef} onChange={handleUserFilesChange} className="hidden" accept="video/*,image/*" />
                     <span className="text-3xl mb-2">📂</span>
-                    <p className="text-sm text-gray-400">点击上传一个或多个视频</p>
+                    <p className="text-sm text-gray-300">点击上传最新视频</p>
                 </div>
 
-                <div className="grid grid-cols-4 gap-2 min-h-[80px]">
+                <div className="grid grid-cols-3 gap-2 min-h-[40px]">
                     {userFiles.map(f => <div key={f.id}>{renderFilePreview(f, removeUserFile)}</div>)}
                 </div>
             </div>
 
-            {/* Right: Benchmark Content */}
-            <div className="bg-dark-900 rounded-2xl border border-dashed border-yellow-600/30 p-6 flex flex-col shadow-xl relative overflow-hidden">
-                <div className="absolute top-0 right-0 bg-yellow-600/20 text-yellow-500 text-[10px] px-2 py-1 rounded-bl-lg font-bold border-l border-b border-yellow-600/30">
-                    高分模版区
-                </div>
+            {/* 3. Benchmark (Right) */}
+            <div className="bg-dark-900/50 rounded-2xl border border-dashed border-yellow-700/30 p-6 flex flex-col relative overflow-hidden">
                 <div className="mb-4 flex items-center justify-between">
-                    <h3 className="text-lg font-bold text-yellow-500 flex items-center gap-2">
-                        <span>⭐</span> 对标视频 (可选)
+                    <h3 className="text-lg font-bold text-yellow-500/80 flex items-center gap-2">
+                        <span>⭐</span> 满分对标
                     </h3>
-                    <span className="text-xs bg-dark-800 px-2 py-1 rounded text-gray-400">选填</span>
+                    <span className="text-xs bg-dark-800 px-2 py-1 rounded text-gray-500">目标</span>
                 </div>
                 
                 <div 
                     onClick={() => benchmarkFileInputRef.current?.click()}
-                    className="flex-1 border-2 border-dashed border-dark-700 hover:border-yellow-500 hover:bg-yellow-900/10 rounded-xl flex flex-col items-center justify-center cursor-pointer transition-all min-h-[150px] mb-4"
+                    className="flex-1 border-2 border-dashed border-dark-700 hover:border-yellow-500/50 hover:bg-yellow-900/5 rounded-xl flex flex-col items-center justify-center cursor-pointer transition-all min-h-[150px] mb-4"
                 >
                     <input type="file" multiple ref={benchmarkFileInputRef} onChange={handleBenchmarkFilesChange} className="hidden" accept="video/*" />
-                    <span className="text-3xl mb-2 text-yellow-600">🏆</span>
-                    <p className="text-sm text-gray-400">上传你想模仿的爆款视频</p>
-                    <p className="text-xs text-gray-600 mt-1">若不上传，AI将按通用标准评价</p>
+                    <span className="text-3xl mb-2 text-yellow-600 opacity-80">🏆</span>
+                    <p className="text-sm text-gray-500">上传你想模仿的爆款</p>
                 </div>
 
-                <div className="grid grid-cols-4 gap-2 min-h-[80px]">
+                <div className="grid grid-cols-3 gap-2 min-h-[40px]">
                     {benchmarkFiles.map(f => <div key={f.id}>{renderFilePreview(f, removeBenchmarkFile)}</div>)}
                 </div>
             </div>
@@ -458,10 +499,10 @@ const MediaAnalyzer: React.FC = () => {
               {analysisProgress > 0 ? (
                 <>
                   <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                  {benchmarkFiles.length > 0 ? '正在进行对比分析...' : '正在深度诊断...'}
+                  {historyFiles.length > 0 ? '正在对比历史版本迭代效果...' : (benchmarkFiles.length > 0 ? '正在进行对比分析...' : '正在深度诊断...')}
                 </>
               ) : (
-                benchmarkFiles.length > 0 ? '🚀 开始对比分析' : '🔍 开始深度诊断'
+                historyFiles.length > 0 ? '🔄 开始迭代复盘 (历史 vs 当前)' : (benchmarkFiles.length > 0 ? '🚀 开始对标分析' : '🔍 开始深度诊断')
               )}
             </button>
             
@@ -495,7 +536,8 @@ const MediaAnalyzer: React.FC = () => {
           <button onClick={() => setPhase('upload')} className="text-gray-400 hover:text-white transition-colors">← 上传页</button>
           <div className="h-6 w-px bg-dark-600"></div>
           <span className="font-semibold text-white">AI 诊断报告</span>
-          {benchmarkFiles.length > 0 && <span className="text-xs bg-yellow-900/30 text-yellow-500 px-2 py-0.5 rounded border border-yellow-700/50 ml-2">对比模式</span>}
+          {historyFiles.length > 0 && <span className="text-xs bg-blue-900/30 text-blue-400 px-2 py-0.5 rounded border border-blue-700/50 ml-2">迭代复盘</span>}
+          {benchmarkFiles.length > 0 && <span className="text-xs bg-yellow-900/30 text-yellow-500 px-2 py-0.5 rounded border border-yellow-700/50 ml-2">对标模式</span>}
           <span className="text-xs bg-dark-700 text-gray-300 px-2 py-0.5 rounded border border-dark-600">{selectedTone.split(' ')[0]}</span>
         </div>
         <button onClick={clearHistory} className="text-xs text-red-400 hover:text-red-300 px-3 py-1.5 rounded hover:bg-red-900/20 transition-colors">

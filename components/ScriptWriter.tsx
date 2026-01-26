@@ -8,7 +8,11 @@ import { Platform, ScriptParams, FileData, ChatMessage } from '../types';
 import { Chat, GenerateContentResponse } from "@google/genai";
 import { PromptPicker } from './PromptLibrary';
 
-const ScriptWriter: React.FC = () => {
+interface ScriptWriterProps {
+  initialParams?: Partial<ScriptParams> | null;
+}
+
+const ScriptWriter: React.FC<ScriptWriterProps> = ({ initialParams }) => {
   // Step 1: Form, Step 2: Chat
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState<ScriptParams>({
@@ -20,6 +24,16 @@ const ScriptWriter: React.FC = () => {
     avoidance: '',
     referenceLinks: []
   });
+  
+  // Initialize with passed params if available
+  useEffect(() => {
+    if (initialParams) {
+      setFormData(prev => ({
+        ...prev,
+        ...initialParams
+      }));
+    }
+  }, [initialParams]);
   
   // File Upload State
   const [refFiles, setRefFiles] = useState<FileData[]>([]);
