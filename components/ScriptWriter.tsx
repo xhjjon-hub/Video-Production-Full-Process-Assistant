@@ -196,6 +196,18 @@ const ScriptWriter: React.FC<ScriptWriterProps> = ({ initialParams }) => {
     html2pdf().set(opt).from(element).save();
   };
 
+  const handleCopy = (e: React.MouseEvent<HTMLButtonElement>, text: string) => {
+    navigator.clipboard.writeText(text);
+    const btn = e.currentTarget;
+    const originalContent = btn.innerHTML;
+    btn.innerHTML = '<span>✅</span> 已复制';
+    btn.classList.add('text-green-400', 'border-green-500');
+    setTimeout(() => {
+      btn.innerHTML = originalContent;
+      btn.classList.remove('text-green-400', 'border-green-500');
+    }, 2000);
+  };
+
   return (
     <div className="max-w-6xl mx-auto h-full flex flex-col">
       {step === 1 && (
@@ -421,6 +433,12 @@ const ScriptWriter: React.FC<ScriptWriterProps> = ({ initialParams }) => {
                  {/* Action Buttons for Model Messages */}
                  {msg.role === 'model' && !loading && (
                     <div className="flex gap-2 mt-2 ml-1">
+                        <button 
+                            onClick={(e) => handleCopy(e, msg.content)}
+                            className="flex items-center gap-1 text-xs bg-dark-800 hover:bg-dark-700 border border-dark-600 px-3 py-1.5 rounded transition-colors text-gray-300"
+                        >
+                            <span>📋</span> 复制
+                        </button>
                         <button 
                             onClick={() => downloadMarkdown(msg.content)}
                             className="flex items-center gap-1 text-xs bg-dark-800 hover:bg-dark-700 border border-dark-600 px-3 py-1.5 rounded transition-colors text-gray-300"
