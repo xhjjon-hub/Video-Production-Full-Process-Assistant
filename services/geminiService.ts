@@ -218,9 +218,66 @@ export const generateVideoScript = async (params: ScriptParams, files: FileData[
   return text;
 };
 
-export const sendScriptMessage = async (chat: Chat, message: string) => {
-    return await chat.sendMessageStream({ message });
+export const sendScriptMessage = async (
+  chat: Chat, 
+  message: string, 
+  files?: {data: string, mimeType: string}[]
+) => {
+    const parts: any[] = [];
+    if (files) {
+        files.forEach(f => parts.push({ inlineData: { mimeType: f.mimeType, data: f.data } }));
+    }
+    parts.push({ text: message });
+    return await chat.sendMessageStream({ message: parts });
 };
+
+// 7. Video Production Session (New)
+export const createVideoProductionSession = async (
+  initialScript: string,
+  contextFiles: { data: string; mimeType: string }[]
+): Promise<Chat> => {
+  const ai = getAiClient();
+  const chat = ai.chats.create({
+    model: 'gemini-3-pro-preview',
+    config: {
+      tools: [{ googleSearch: {} }],
+      systemInstruction: `你是一位全能的 AI 视频制作人和剪辑师。你的目标是协助用户将文字脚本转化为实际的视频画面。
+      
+      【你的能力】
+      1. **分镜绘图指导**: 你可以根据脚本描述画面，并生成用于 Imagen 3 的精准提示词。
+      2. **视频生成指导**: 你可以设计用于 Veo 的视频生成提示词，包括运镜、光影、动态描述。
+      3. **文案/配音生成**: 你可以润色脚本中的台词，使其更适合朗读，或生成口播文案。
+      4. **音效与 BGM 设计**: 你可以根据画面情绪推荐具体的音效（如：‘嗖’的转场声）和 BGM 风格。
+
+      【交互风格】
+      - 专业、高效、富有画面感。
+      - 当用户要求生成图片或视频时，请先描述你构思的画面，然后引导用户点击生成按钮（如果 App 支持）。
+      - 如果用户上传了素材，请仔细分析素材并将其融入制作建议中。
+      - 始终使用中文回答。
+      `
+    }
+  });
+
+  // Seed the chat with initial context if available
+  if (initialScript || contextFiles.length > 0) {
+    const parts: any[] = [];
+    if (initialScript) {
+        parts.push({ text: `【当前视频脚本/大纲】\n${initialScript}\n\n请阅读以上脚本，准备协助我进行视频制作（分镜绘制、视频生成、配音文案等）。` });
+    }
+    contextFiles.forEach(f => {
+        parts.push({ inlineData: { mimeType: f.mimeType, data: f.data } });
+    });
+    
+    // Send a hidden initialization message to prep the model context
+    // We don't await the stream here to return the chat object quickly, 
+    // but usually we want to wait. For simplicity in UI binding, we assume user will send first 'real' prompt or we send a dummy one.
+    // However, to ensure model has context, let's send it.
+    await chat.sendMessage({ message: parts });
+  }
+
+  return chat;
+};
+
 
 // 3. Multi-File Interactive Audit Session (Updated for Tone Selection and History Comparison)
 export const createAuditSession = async (

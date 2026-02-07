@@ -10,9 +10,10 @@ import { PromptPicker } from './PromptLibrary';
 
 interface ScriptWriterProps {
   initialParams?: Partial<ScriptParams> | null;
+  onNavigateToVideoProducer?: (script: string) => void;
 }
 
-const ScriptWriter: React.FC<ScriptWriterProps> = ({ initialParams }) => {
+const ScriptWriter: React.FC<ScriptWriterProps> = ({ initialParams, onNavigateToVideoProducer }) => {
   // Step 1: Form, Step 2: Chat
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState<ScriptParams>({
@@ -206,6 +207,12 @@ const ScriptWriter: React.FC<ScriptWriterProps> = ({ initialParams }) => {
       btn.innerHTML = originalContent;
       btn.classList.remove('text-green-400', 'border-green-500');
     }, 2000);
+  };
+
+  const goToProduction = (script: string) => {
+      if(onNavigateToVideoProducer) {
+          onNavigateToVideoProducer(script);
+      }
   };
 
   return (
@@ -450,6 +457,15 @@ const ScriptWriter: React.FC<ScriptWriterProps> = ({ initialParams }) => {
                             className="flex items-center gap-1 text-xs bg-dark-800 hover:bg-dark-700 border border-dark-600 px-3 py-1.5 rounded transition-colors text-gray-300"
                         >
                             <span>📄</span> PDF
+                        </button>
+                        
+                        {/* Go to Video Production Button */}
+                        <div className="h-6 w-px bg-dark-600 mx-1"></div>
+                        <button 
+                            onClick={() => goToProduction(msg.content)}
+                            className="flex items-center gap-1 text-xs bg-brand-600 hover:bg-brand-500 border border-brand-500 px-3 py-1.5 rounded transition-colors text-white font-semibold"
+                        >
+                            <span>🎬</span> 转入制作
                         </button>
                     </div>
                  )}

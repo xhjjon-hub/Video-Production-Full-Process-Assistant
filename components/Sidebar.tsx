@@ -12,7 +12,8 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, onOpenProm
   const navItems = [
     { id: AppView.TOPIC_RESEARCH, label: '💡 灵感与选题', icon: '🔍' },
     { id: AppView.SCRIPT_WRITER, label: '📝 脚本创作', icon: '✍️' },
-    { id: AppView.CONTENT_AUDIT, label: '🎬 内容诊断', icon: '🩺' },
+    { id: AppView.VIDEO_PRODUCTION, label: '🎬 视频制作', icon: '🎥' },
+    { id: AppView.CONTENT_AUDIT, label: '🩺 内容诊断', icon: '📈' },
     { id: AppView.BENCHMARK_STUDIO, label: '🧬 爆款仿写', icon: '👯' },
   ];
 
